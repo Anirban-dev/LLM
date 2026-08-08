@@ -1,7 +1,11 @@
 version: '3.8'
 
+# Utility Infrastructure for Local Development
+# Run utility containers with: docker compose -f docker-compose.dev.yml up -d
+# Launch application locally with: npm run dev
+
 services:
-  # 1. MongoDB Database (Development)
+  # 1. MongoDB Database Utility Service
   mongodb:
     image: mongo:7.0
     container_name: chatapp-mongodb-dev
@@ -16,58 +20,43 @@ services:
       timeout: 5s
       retries: 5
 
-  # 2. Ollama Local CPU Model Runner
-  ollama:
-    image: ollama/ollama:latest
-    container_name: chatapp-ollama-dev
+  # 2. MinIO Self-Hosted S3-Compatible Object Storage
+  minio:
+    image: minio/minio:RELEASE.2024-01-31T20-20-31Z
+    container_name: chatapp-minio-dev
     restart: always
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
     ports:
-      - "11434:11434"
+      - "9000:9000"   # S3 API Endpoint
+      - "9001:9001"   # MinIO Web Console UI
     volumes:
-      - ollama_dev_data:/root/.ollama
+      - minio_dev_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # 3. Automatic Ollama Model Pre-Loader
-  ollama-model-puller:
-    image: curlimages/curl:latest
-    container_name: chatapp-ollama-puller-dev
+  # 3. MinIO Auto-Bucket & Policy Initializer
+  minio-init:
+    image: minio/mc:RELEASE.2024-01-28T16-23-42Z
+    container_name: chatapp-minio-init-dev
     depends_on:
-      - ollama
-    restart: "no"
+      - minio
     entrypoint: >
       /bin/sh -c "
-        echo 'Waiting for Ollama to be ready...';
-        while ! curl -s http://ollama:11434/api/tags > /dev/null; do sleep 2; done;
-        echo 'Pulling llama3.2:3b for CPU Persona Extraction & Clone Chat...';
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"llama3.2:3b\"}';
-        echo 'Pulling whisper model for local speech-to-text...';
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"whisper\"}';
-        echo 'Ollama models pulled successfully!';
+        echo 'Waiting for MinIO server to start...';
+        until /usr/bin/mc config host add myminio http://minio:9000 minioadmin minioadmin; do sleep 2; done;
+        echo 'Creating chatapp-media bucket...';
+        /usr/bin/mc mb myminio/chatapp-media --ignore-existing;
+        echo 'Setting public download policy for chatapp-media bucket...';
+        /usr/bin/mc anonymous set download myminio/chatapp-media;
+        echo 'MinIO Object Storage initialized successfully!';
       "
-
-  # 4. ChatApp Development Hot-Reloading App
-  app-dev:
-    image: node:20-alpine
-    container_name: chatapp-app-dev
-    working_dir: /app
-    volumes:
-      - .:/app
-      - /app/node_modules
-    ports:
-      - "3000:3000"
-    environment:
-      - NODE_ENV=development
-      - MONGO_URI=mongodb://mongodb:27017/chatapp-db
-      - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL=llama3.2:3b
-      - JWT_SECRET=chatapp_secret_jwt_key_2026
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
-    command: sh -c "npm install && npm run dev"
-    depends_on:
-      mongodb:
-        condition: service_healthy
-      ollama:
-        condition: service_started
 
 volumes:
   mongo_dev_data:
-  ollama_dev_data:
+  minio_dev_data:

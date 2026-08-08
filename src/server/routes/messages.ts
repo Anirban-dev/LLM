@@ -7,6 +7,7 @@ import { authenticateJwt } from '../auth';
 import { Message } from '../models/Message';
 import { Chat } from '../models/Chat';
 import { processMessageForPersona } from '../services/personaExtractor';
+import { uploadFileToStorage } from '../services/storage';
 
 const router = Router();
 
@@ -19,41 +20,61 @@ function getAIClient(): GoogleGenAI | null {
   return aiClient;
 }
 
-// Ensure uploads folder exists
-const uploadsDir = path.join(process.cwd(), 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
-}
-
-// Multer Storage setup
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadsDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
-    const ext = path.extname(file.originalname) || '.webm';
-    cb(null, `voice-${uniqueSuffix}${ext}`);
-  },
+// Multer in-memory storage (10MB limit)
+const memoryStorage = multer.memoryStorage();
+const mediaUpload = multer({
+  storage: memoryStorage,
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB strict limit
 });
 
-const upload = multer({
-  storage,
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype.startsWith('audio/') || file.originalname.match(/\.(webm|opus|wav|mp3|m4a|ogg)$/i)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only audio files are allowed'));
+// Upload General Media Endpoint (/api/messages/upload-media)
+router.post(
+  '/upload-media',
+  authenticateJwt,
+  mediaUpload.single('file'),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      if (!req.file) {
+        res.status(400).json({ message: 'No file uploaded' });
+        return;
+      }
+
+      const { fileUrl, storageType } = await uploadFileToStorage(
+        req.file.buffer,
+        req.file.originalname,
+        req.file.mimetype
+      );
+
+      const originalName = req.file.originalname;
+      const size = req.file.size;
+      const mimeType = req.file.mimetype;
+
+      let fileType: 'image' | 'video' | 'document' | 'audio' = 'document';
+      if (mimeType.startsWith('image/')) fileType = 'image';
+      else if (mimeType.startsWith('video/')) fileType = 'video';
+      else if (mimeType.startsWith('audio/')) fileType = 'audio';
+
+      res.json({
+        mediaUrl: fileUrl,
+        type: fileType,
+        fileName: originalName,
+        fileSize: size,
+        mimeType,
+        storageType,
+      });
+    } catch (error: any) {
+      console.error('Media upload error:', error);
+      res.status(500).json({ message: error.message || 'Error uploading file' });
     }
-  },
-});
+  }
+);
+
 
 // Upload Audio Endpoint with Server-Side STT (Speech-To-Text)
 router.post(
   '/upload-audio',
   authenticateJwt,
-  upload.single('audio'),
+  mediaUpload.single('audio'),
   async (req: Request, res: Response): Promise<void> => {
     try {
       if (!req.file) {
@@ -62,8 +83,11 @@ router.post(
       }
 
       const duration = req.body.duration ? parseFloat(req.body.duration) : 0;
-      const mediaUrl = `/uploads/${req.file.filename}`;
-      const filePath = req.file.path;
+      const { fileUrl, storageType } = await uploadFileToStorage(
+        req.file.buffer,
+        req.file.originalname || 'voice_recording.webm',
+        req.file.mimetype || 'audio/webm'
+      );
 
       let transcript = '';
 
@@ -71,8 +95,7 @@ router.post(
       const ai = getAIClient();
       if (ai) {
         try {
-          const fileData = fs.readFileSync(filePath);
-          const base64Audio = fileData.toString('base64');
+          const base64Audio = req.file.buffer.toString('base64');
           const mimeType = req.file.mimetype || 'audio/webm';
 
           const response = await ai.models.generateContent({
@@ -90,99 +113,82 @@ router.post(
             ],
           });
 
-          if (response.text) {
-            transcript = response.text.trim();
-          }
+          transcript = response.text?.trim() || '';
+          console.log(`🎙️ Audio STT Transcribed (${transcript.length} chars): "${transcript}"`);
         } catch (sttErr) {
-          console.error('Server STT Error:', sttErr);
+          console.error('❌ STT Transcription failed:', sttErr);
         }
       }
 
-      if (!transcript) {
-        transcript = `🎤 Voice note (${Math.round(duration || 0)}s)`;
-      }
-
       res.json({
-        mediaUrl,
-        duration,
+        mediaUrl: fileUrl,
         transcript,
-        filename: req.file.filename,
-        size: req.file.size,
+        duration,
+        storageType,
       });
     } catch (error: any) {
       console.error('Audio upload error:', error);
-      res.status(500).json({ message: error.message || 'Error uploading audio file' });
+      res.status(500).json({ message: error.message || 'Error uploading audio' });
     }
   }
 );
 
-// Get messages for a chat
+
+// Fetch Paginated Chat Messages
 router.get('/:chatId', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
   try {
     const { chatId } = req.params;
-    const userId = (req.user as any)._id;
-
-    // Verify user is a participant
-    const chat = await Chat.findOne({ _id: chatId, participants: userId });
-    if (!chat) {
-      res.status(403).json({ message: 'Access denied' });
-      return;
-    }
+    const limit = parseInt(req.query.limit as string) || 50;
 
     const messages = await Message.find({ chatId })
-      .populate('senderId', '-passwordHash')
-      .sort({ createdAt: 1 });
+      .populate('senderId', 'username avatar customStatus online')
+      .sort({ createdAt: -1 })
+      .limit(limit);
 
-    res.json(messages);
+    res.json(messages.reverse());
   } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Error fetching messages' });
+    res.status(500).json({ message: error.message });
   }
 });
 
-// Post a new message (text or audio)
-router.post('/', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+// Send a Message & Handle AI Persona Triggers
+router.post('/send', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
   try {
-    const senderId = (req.user as any)._id;
-    const { chatId, type, content, mediaUrl, duration } = req.body;
+    const userId = (req as any).user.userId;
+    const { chatId, content, type = 'text', mediaUrl, audioData } = req.body;
 
     if (!chatId) {
       res.status(400).json({ message: 'chatId is required' });
       return;
     }
 
-    const chat = await Chat.findOne({ _id: chatId, participants: senderId });
-    if (!chat) {
-      res.status(403).json({ message: 'Access denied' });
-      return;
-    }
-
-    const message = new Message({
+    const newMessage = await Message.create({
       chatId,
-      senderId,
-      type: type || 'text',
-      content: content || (type === 'audio' ? '🎤 Voice note' : ''),
-      mediaUrl: mediaUrl || '',
-      duration: duration || 0,
+      senderId: userId,
+      content: content || '',
+      type,
+      mediaUrl,
+      audioData,
     });
 
-    await message.save();
+    await Chat.findByIdAndUpdate(chatId, {
+      lastMessage: content || (type === 'audio' ? '🎤 Voice Note' : '📎 Attachment'),
+      lastMessageTime: new Date(),
+    });
 
-    // Update Chat lastMessage
-    chat.lastMessage = message._id as any;
-    await chat.save();
+    const populatedMsg = await Message.findById(newMessage._id).populate(
+      'senderId',
+      'username avatar customStatus online'
+    );
 
-    // Asynchronously trigger Persona Extractor in background
-    if (content) {
-      processMessageForPersona(senderId.toString(), content).catch(err => {
-        console.error('Persona extraction error:', err);
-      });
-    }
+    // Process AI Persona reply asynchronously if applicable
+    processMessageForPersona(chatId, userId, content || '', type, mediaUrl).catch((err) =>
+      console.error('AI Persona Trigger Error:', err)
+    );
 
-    const populatedMessage = await Message.findById(message._id).populate('senderId', '-passwordHash');
-
-    res.status(201).json(populatedMessage);
+    res.status(201).json(populatedMsg);
   } catch (error: any) {
-    res.status(500).json({ message: error.message || 'Error sending message' });
+    res.status(500).json({ message: error.message });
   }
 });
 

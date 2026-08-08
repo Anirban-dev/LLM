@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessageSquarePlus, Users, LogOut, Search, BrainCircuit, X, Smartphone } from 'lucide-react';
+import { MessageSquarePlus, Users, LogOut, Search, BrainCircuit, X } from 'lucide-react';
 import { useChatStore } from '../store/useChatStore';
 import { Chat } from '../types';
 
@@ -16,7 +16,6 @@ export const LeftSidebar: React.FC = () => {
     setNewGroupOpen,
     setPersonaModalOpen,
     setMobileSidebarOpen,
-    setAndroidModalOpen,
     onlineUsers,
   } = useChatStore();
 
@@ -79,13 +78,6 @@ export const LeftSidebar: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={() => setAndroidModalOpen(true)}
-            className="p-1.5 text-gray-600 hover:text-[#00a884] hover:bg-gray-200/60 rounded-full transition-colors"
-            title="Install as Android App"
-          >
-            <Smartphone className="w-5 h-5 text-emerald-600" />
-          </button>
           <button
             onClick={() => setPersonaModalOpen(true)}
             className="p-1.5 text-[#00a884] hover:bg-[#00a884]/10 rounded-full transition-colors relative"

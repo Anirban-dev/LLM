@@ -33,6 +33,7 @@ async function startServer() {
   app.use('/api/messages', messageRoutes);
   app.use('/api/tts', ttsRoutes);
   app.use('/api/persona', personaRoutes);
+  app.use('/api/personas', personaRoutes);
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {

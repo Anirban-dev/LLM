@@ -286,4 +286,209 @@ router.post('/clone-chat/:targetUserId', authenticateJwt, async (req: Request, r
   }
 });
 
+// 6. GET /api/personas - List public personas + user's created personas
+router.get('/', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    const personas = await Persona.find({
+      $or: [{ isPublic: true }, { creatorId: user._id }, { userId: user._id }],
+    }).sort({ createdAt: -1 });
+
+    res.json(personas);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message || 'Error listing personas' });
+  }
+});
+
+// 7. GET /api/personas/:id - Get specific persona
+router.get('/:id', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const persona = await Persona.findById(req.params.id);
+    if (!persona) {
+      res.status(404).json({ message: 'Persona not found' });
+      return;
+    }
+    res.json(persona);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message || 'Error getting persona' });
+  }
+});
+
+// 8. POST /api/personas - Create new AI Persona
+router.post('/', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    const {
+      name,
+      tagline,
+      avatarUrl,
+      category,
+      systemPrompt,
+      greetingMessage,
+      model,
+      temperature,
+      maxTokens,
+      voiceSettings,
+      isPublic,
+    } = req.body;
+
+    if (!name || !name.trim()) {
+      res.status(400).json({ message: 'Persona name is required' });
+      return;
+    }
+
+    const persona = new Persona({
+      creatorId: user._id,
+      name: name.trim(),
+      tagline: tagline || 'AI Conversation Partner',
+      avatarUrl:
+        avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(name.trim())}`,
+      category: category || 'Assistant',
+      systemPrompt: systemPrompt || 'You are a helpful and friendly AI persona.',
+      greetingMessage: greetingMessage || 'Hello! How can I help you today?',
+      model: model || 'gpt-4o',
+      temperature: temperature ?? 0.7,
+      maxTokens: maxTokens ?? 1000,
+      voiceSettings: voiceSettings || { voiceId: 'alloy', speed: 1.0, autoVoiceReply: false },
+      isPublic: isPublic !== false,
+    });
+
+    await persona.save();
+
+    // Create shadow user for persona if not exists for direct messaging compatibility
+    const botUsername = `${persona.name} (AI)`;
+    let shadowUser = await User.findOne({ username: botUsername });
+    if (!shadowUser) {
+      shadowUser = new User({
+        username: botUsername,
+        email: `bot_${persona._id}@chatapp.local`,
+        passwordHash: 'AI_BOT_NO_PASSWORD',
+        avatarUrl: persona.avatarUrl,
+        isOnline: true,
+      });
+      await shadowUser.save();
+    }
+
+    res.status(201).json(persona);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message || 'Error creating persona' });
+  }
+});
+
+// 9. PUT /api/personas/:id - Update AI Persona
+router.put('/:id', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = (req as any).user;
+    const persona = await Persona.findById(req.params.id);
+
+    if (!persona) {
+      res.status(404).json({ message: 'Persona not found' });
+      return;
+    }
+
+    const {
+      name,
+      tagline,
+      avatarUrl,
+      category,
+      systemPrompt,
+      greetingMessage,
+      model,
+      temperature,
+      maxTokens,
+      voiceSettings,
+      isPublic,
+    } = req.body;
+
+    if (name) persona.name = name.trim();
+    if (tagline !== undefined) persona.tagline = tagline;
+    if (avatarUrl !== undefined) persona.avatarUrl = avatarUrl;
+    if (category !== undefined) persona.category = category;
+    if (systemPrompt !== undefined) persona.systemPrompt = systemPrompt;
+    if (greetingMessage !== undefined) persona.greetingMessage = greetingMessage;
+    if (model !== undefined) persona.model = model;
+    if (temperature !== undefined) persona.temperature = temperature;
+    if (maxTokens !== undefined) persona.maxTokens = maxTokens;
+    if (voiceSettings !== undefined) persona.voiceSettings = voiceSettings;
+    if (isPublic !== undefined) persona.isPublic = isPublic;
+
+    persona.updatedAt = new Date();
+    await persona.save();
+
+    res.json(persona);
+  } catch (err: any) {
+    res.status(500).json({ message: err.message || 'Error updating persona' });
+  }
+});
+
+// 10. DELETE /api/personas/:id - Delete AI Persona
+router.delete('/:id', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    await Persona.findByIdAndDelete(req.params.id);
+    res.json({ message: 'Persona deleted successfully' });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message || 'Error deleting persona' });
+  }
+});
+
+// 11. POST /api/personas/:id/chat - Start or open 1-on-1 chat room with this AI Persona
+router.post('/:id/chat', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const currentUser = (req as any).user;
+    const persona = await Persona.findById(req.params.id);
+
+    if (!persona) {
+      res.status(404).json({ message: 'Persona not found' });
+      return;
+    }
+
+    // Ensure shadow user exists
+    const botUsername = `${persona.name} (AI)`;
+    let shadowUser = await User.findOne({ username: botUsername });
+    if (!shadowUser) {
+      shadowUser = new User({
+        username: botUsername,
+        email: `bot_${persona._id}@chatapp.local`,
+        passwordHash: 'AI_BOT_NO_PASSWORD',
+        avatarUrl: persona.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${encodeURIComponent(persona.name)}`,
+        isOnline: true,
+      });
+      await shadowUser.save();
+    }
+
+    let chat = await Chat.findOne({
+      isGroup: false,
+      participants: { $all: [currentUser._id, shadowUser._id] },
+    });
+
+    if (!chat) {
+      chat = new Chat({
+        isGroup: false,
+        participants: [currentUser._id, shadowUser._id],
+        personaParticipants: [persona._id],
+      });
+      await chat.save();
+
+      // Send greeting message from Persona
+      const greetingMsg = new Message({
+        chatId: chat._id,
+        senderId: shadowUser._id,
+        senderType: 'Persona',
+        senderPersona: persona._id,
+        content: persona.greetingMessage || `Hello! I am ${persona.name}. How can I help you today?`,
+        type: 'text',
+      });
+      await greetingMsg.save();
+
+      chat.lastMessage = greetingMsg._id;
+      await chat.save();
+    }
+
+    res.json({ chatId: chat._id, persona, shadowUser });
+  } catch (err: any) {
+    res.status(500).json({ message: err.message || 'Error opening chat with persona' });
+  }
+});
+
 export default router;
+

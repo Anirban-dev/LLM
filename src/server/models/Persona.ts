@@ -14,21 +14,58 @@ export interface IPersonaStyle {
   emoji_usage?: string;
 }
 
-export interface IPersona extends Document {
-  userId: mongoose.Types.ObjectId;
+export interface IVoiceSettings {
+  voiceId: string;
+  speed: number;
+  autoVoiceReply: boolean;
+}
+
+export interface IPersona extends Omit<Document, 'model'> {
+  creatorId?: mongoose.Types.ObjectId;
+  userId?: mongoose.Types.ObjectId;
   name: string;
-  bio: IPersonaBio;
-  style: IPersonaStyle;
+  tagline?: string;
+  avatarUrl?: string;
+  category?: string;
+  systemPrompt?: string;
+  greetingMessage?: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  voiceSettings?: IVoiceSettings;
+  isPublic?: boolean;
+  
+  // Legacy / Clone fields
+  bio?: IPersonaBio;
+  style?: IPersonaStyle;
   stances?: string[];
   rawSummary?: string;
+
   createdAt: Date;
   updatedAt: Date;
 }
 
 const PersonaSchema = new Schema<IPersona>(
   {
-    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, unique: true },
+    creatorId: { type: Schema.Types.ObjectId, ref: 'User' },
+    userId: { type: Schema.Types.ObjectId, ref: 'User' },
     name: { type: String, required: true },
+    tagline: { type: String, default: 'AI Conversation Partner' },
+    avatarUrl: { type: String, default: '' },
+    category: { type: String, default: 'Assistant' },
+    systemPrompt: { type: String, default: 'You are a helpful, friendly, and engaging AI persona.' },
+    greetingMessage: { type: String, default: 'Hello! How can I assist you today?' },
+    model: { type: String, default: 'gpt-4o' },
+    temperature: { type: Number, default: 0.7 },
+    maxTokens: { type: Number, default: 1000 },
+    voiceSettings: {
+      voiceId: { type: String, default: 'alloy' },
+      speed: { type: Number, default: 1.0 },
+      autoVoiceReply: { type: Boolean, default: false },
+    },
+    isPublic: { type: Boolean, default: true },
+
+    // Legacy Clone Fields
     bio: {
       occupation: { type: String, default: '' },
       hobbies: [{ type: String }],
@@ -48,3 +85,4 @@ const PersonaSchema = new Schema<IPersona>(
 );
 
 export const Persona = mongoose.model<IPersona>('Persona', PersonaSchema);
+

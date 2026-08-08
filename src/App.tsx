@@ -8,7 +8,6 @@ import { NewChatModal } from './components/NewChatModal';
 import { NewGroupModal } from './components/NewGroupModal';
 import { CallOverlay } from './components/CallOverlay';
 import { PersonaModal } from './components/PersonaModal';
-import { AndroidGuideModal } from './components/AndroidGuideModal';
 
 export default function App() {
   const {
@@ -21,8 +20,6 @@ export default function App() {
     setPersonaModalOpen,
     isMobileSidebarOpen,
     setMobileSidebarOpen,
-    isAndroidModalOpen,
-    setAndroidModalOpen,
   } = useChatStore();
 
   useEffect(() => {
@@ -83,7 +80,6 @@ export default function App() {
       <NewChatModal />
       <NewGroupModal />
       <PersonaModal isOpen={isPersonaModalOpen} onClose={() => setPersonaModalOpen(false)} />
-      <AndroidGuideModal isOpen={isAndroidModalOpen} onClose={() => setAndroidModalOpen(false)} />
     </div>
   );
 }
