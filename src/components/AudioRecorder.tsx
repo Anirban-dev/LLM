@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Trash2, Send, Play, Pause } from 'lucide-react';
+import { Square, Trash2, Send, Play, Pause } from 'lucide-react';
 import { useChatStore } from '../store/useChatStore';
 
 interface AudioRecorderProps {
@@ -19,7 +19,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onClose }) => {
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const { token, sendMessage } = useChatStore();
+  const { uploadAudioVoiceNote } = useChatStore();
 
   useEffect(() => {
     startRecording();
@@ -69,7 +69,6 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onClose }) => {
         const url = URL.createObjectURL(blob);
         setAudioUrl(url);
 
-        // Stop media tracks
         stream.getTracks().forEach((track) => track.stop());
       };
 
@@ -113,27 +112,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onClose }) => {
   };
 
   const handleSendAudio = async () => {
-    if (!audioBlob || !token) return;
+    if (!audioBlob) return;
 
     setIsUploading(true);
     try {
-      const formData = new FormData();
-      formData.append('audio', audioBlob, 'voice-note.webm');
-      formData.append('duration', recordingTime.toString());
-
-      const res = await fetch('/api/messages/upload-audio', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-        body: formData,
-      });
-
-      if (res.ok) {
-        const data = await res.json();
-        await sendMessage('🎤 Voice Note', data.mediaUrl, recordingTime);
-        onClose();
-      } else {
-        alert('Failed to upload audio recording');
-      }
+      await uploadAudioVoiceNote(audioBlob, recordingTime);
+      onClose();
     } catch (err) {
       console.error('Send audio error:', err);
       alert('Error uploading audio recording');
@@ -149,7 +133,7 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onClose }) => {
   };
 
   return (
-    <div className="flex items-center gap-3 w-full bg-slate-100 dark:bg-slate-800 px-4 py-2.5 rounded-full shadow-inner border border-emerald-500/30">
+    <div className="flex items-center gap-3 w-full bg-gray-100 px-4 py-2.5 rounded-full shadow-inner border border-[#00a884]/30">
       {audioUrl && <audio ref={previewAudioRef} src={audioUrl} onEnded={() => setIsPlayingPreview(false)} />}
 
       <button
@@ -162,11 +146,11 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onClose }) => {
       </button>
 
       {/* Recording indicator & timer */}
-      <div className="flex-1 flex items-center gap-3">
+      <div className="flex-1 flex items-center gap-3 min-w-0">
         {isRecording ? (
           <div className="flex items-center gap-2">
             <span className="w-3 h-3 bg-rose-500 rounded-full animate-ping shrink-0" />
-            <span className="text-sm font-semibold text-rose-600 dark:text-rose-400 font-mono">
+            <span className="text-sm font-semibold text-rose-600 font-mono">
               Recording {formatTime(recordingTime)}
             </span>
           </div>
@@ -175,12 +159,12 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onClose }) => {
             <button
               type="button"
               onClick={togglePreview}
-              className="p-1.5 bg-emerald-600 text-white rounded-full hover:bg-emerald-500"
+              className="p-1.5 bg-[#00a884] text-white rounded-full hover:bg-[#008f70]"
             >
               {isPlayingPreview ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             </button>
-            <span className="text-xs text-slate-600 dark:text-slate-300 font-mono">
-              Audio Note ({formatTime(recordingTime)})
+            <span className="text-xs text-gray-700 font-mono">
+              Voice Note ({formatTime(recordingTime)})
             </span>
           </div>
         )}
@@ -191,17 +175,17 @@ export const AudioRecorder: React.FC<AudioRecorderProps> = ({ onClose }) => {
         <button
           type="button"
           onClick={stopRecording}
-          className="p-2 bg-rose-600 hover:bg-rose-500 text-white rounded-full shadow transition-transform active:scale-95"
+          className="p-2.5 bg-rose-600 hover:bg-rose-500 text-white rounded-full shadow transition-transform active:scale-95"
           title="Stop Recording"
         >
-          <Square className="w-5 h-5 fill-current" />
+          <Square className="w-4 h-4 fill-current" />
         </button>
       ) : (
         <button
           type="button"
           disabled={isUploading}
           onClick={handleSendAudio}
-          className="p-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-full shadow transition-transform active:scale-95 disabled:opacity-50"
+          className="p-2.5 bg-[#00a884] hover:bg-[#008f70] text-white rounded-full shadow transition-transform active:scale-95 disabled:opacity-50"
           title="Send Voice Note"
         >
           {isUploading ? (

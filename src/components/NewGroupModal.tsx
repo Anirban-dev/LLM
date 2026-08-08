@@ -57,15 +57,15 @@ export const NewGroupModal: React.FC = () => {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white dark:bg-slate-800 rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-slate-200 dark:border-slate-700">
-        <div className="p-4 bg-emerald-700 text-white flex items-center justify-between">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden border border-gray-100">
+        <div className="p-4 bg-[#00a884] text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Users className="w-5 h-5" />
-            <h3 className="font-semibold text-lg">Create Group Chat</h3>
+            <h3 className="font-semibold text-base">Create Group Chat</h3>
           </div>
           <button
             onClick={() => setNewGroupOpen(false)}
-            className="p-1 hover:bg-emerald-800 rounded-full transition-colors"
+            className="p-1 hover:bg-[#008f70] rounded-full transition-colors"
           >
             <X className="w-5 h-5" />
           </button>
@@ -73,7 +73,7 @@ export const NewGroupModal: React.FC = () => {
 
         <form onSubmit={handleCreateGroup} className="p-4 space-y-4">
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
               Group Name
             </label>
             <input
@@ -81,29 +81,29 @@ export const NewGroupModal: React.FC = () => {
               placeholder="e.g. Project Team, Weekend Trips"
               value={groupName}
               onChange={(e) => setGroupName(e.target.value)}
-              className="w-full px-3 py-2 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-sm text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              className="w-full px-3 py-2 bg-[#f0f2f5] border border-transparent rounded-lg text-sm text-gray-900 focus:outline-none focus:bg-white focus:border-[#00a884]"
               required
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+            <label className="block text-xs font-semibold text-gray-600 uppercase tracking-wider mb-1">
               Select Participants ({selectedIds.length})
             </label>
             <div className="relative mb-2">
-              <Search className="w-4 h-4 absolute left-3 top-2.5 text-slate-400" />
+              <Search className="w-4 h-4 absolute left-3 top-2.5 text-gray-400" />
               <input
                 type="text"
                 placeholder="Search candidates..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-1.5 bg-slate-100 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs text-slate-800 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                className="w-full pl-9 pr-4 py-1.5 bg-[#f0f2f5] border border-transparent rounded-lg text-xs text-gray-900 focus:outline-none focus:bg-white focus:border-[#00a884]"
               />
             </div>
 
             <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
               {loading ? (
-                <div className="p-4 text-center text-xs text-slate-500">Loading users...</div>
+                <div className="p-4 text-center text-xs text-gray-500">Loading contacts...</div>
               ) : (
                 users.map((u) => {
                   const isSelected = selectedIds.includes(u._id);
@@ -113,26 +113,26 @@ export const NewGroupModal: React.FC = () => {
                       onClick={() => toggleSelectUser(u._id)}
                       className={`p-2 rounded-lg flex items-center gap-3 cursor-pointer transition-colors ${
                         isSelected
-                          ? 'bg-emerald-500/10 border border-emerald-500/40'
-                          : 'hover:bg-slate-100 dark:hover:bg-slate-700/50'
+                          ? 'bg-[#e8f8f5] border border-[#00a884]/30'
+                          : 'hover:bg-[#f5f6f6]'
                       }`}
                     >
                       <img
                         src={u.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${u.username}`}
                         alt={u.username}
-                        className="w-8 h-8 rounded-full object-cover"
+                        className="w-8 h-8 rounded-full object-cover border border-gray-200"
                       />
                       <div className="flex-1 min-w-0">
-                        <div className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                        <div className="text-xs font-semibold text-gray-900 truncate">
                           {u.username}
                         </div>
-                        <div className="text-[10px] text-slate-500 truncate">{u.email}</div>
+                        <div className="text-[10px] text-gray-500 truncate">{u.email}</div>
                       </div>
                       <div
                         className={`w-5 h-5 rounded-md flex items-center justify-center border transition-colors ${
                           isSelected
-                            ? 'bg-emerald-600 border-emerald-600 text-white'
-                            : 'border-slate-300 dark:border-slate-600'
+                            ? 'bg-[#00a884] border-[#00a884] text-white'
+                            : 'border-gray-300'
                         }`}
                       >
                         {isSelected && <Check className="w-3.5 h-3.5" />}
@@ -147,7 +147,7 @@ export const NewGroupModal: React.FC = () => {
           <button
             type="submit"
             disabled={!groupName.trim() || selectedIds.length === 0}
-            className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white font-medium text-sm rounded-xl shadow transition-colors disabled:opacity-50"
+            className="w-full py-2.5 bg-[#00a884] hover:bg-[#008f70] text-white font-medium text-sm rounded-xl shadow transition-colors disabled:opacity-50"
           >
             Create Group Chat
           </button>

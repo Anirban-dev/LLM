@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { authenticateJwt } from '../passport';
+import { authenticateJwt } from '../auth';
 import { Chat } from '../models/Chat';
 import { Message } from '../models/Message';
 

@@ -1,6 +1,6 @@
 import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HttpServer } from 'http';
-import { verifyToken } from './passport';
+import { verifyToken } from './auth';
 import { User } from './models/User';
 import { Chat } from './models/Chat';
 import { Message } from './models/Message';
@@ -180,6 +180,92 @@ export function initializeSocketIO(httpServer: HttpServer): SocketIOServer {
         chatId,
         userId,
       });
+    });
+
+    // ===========================================
+    // WebRTC 1-on-1 Voice Calling Signaling Events
+    // ===========================================
+
+    // Call User (Caller initiates call)
+    socket.on('call_user', async (data: { recipientId: string; offer: any }) => {
+      const { recipientId, offer } = data;
+      console.log(`📞 Call initiated from ${user.username} (${userId}) to ${recipientId}`);
+      
+      const callerInfo = await User.findById(userId).select('-passwordHash');
+      const targetSockets = userSocketsMap.get(recipientId);
+      
+      if (targetSockets && targetSockets.size > 0) {
+        targetSockets.forEach((sId) => {
+          io.to(sId).emit('incoming_call', {
+            callerId: userId,
+            caller: callerInfo,
+            offer,
+          });
+        });
+      } else {
+        socket.emit('call_failed', { reason: 'User is offline' });
+      }
+    });
+
+    // Accept Call (Recipient accepts call)
+    socket.on('call_accepted', (data: { callerId: string; answer: any }) => {
+      const { callerId, answer } = data;
+      console.log(`✅ Call accepted by ${user.username} for caller ${callerId}`);
+      
+      const callerSockets = userSocketsMap.get(callerId);
+      if (callerSockets) {
+        callerSockets.forEach((sId) => {
+          io.to(sId).emit('call_accepted', {
+            answer,
+            acceptorId: userId,
+          });
+        });
+      }
+    });
+
+    // Decline Call (Recipient declines call)
+    socket.on('call_declined', (data: { callerId: string }) => {
+      const { callerId } = data;
+      console.log(`❌ Call declined by ${user.username} for caller ${callerId}`);
+      
+      const callerSockets = userSocketsMap.get(callerId);
+      if (callerSockets) {
+        callerSockets.forEach((sId) => {
+          io.to(sId).emit('call_declined', {
+            declinerId: userId,
+            username: user.username,
+          });
+        });
+      }
+    });
+
+    // ICE Candidate Exchange
+    socket.on('ice_candidate', (data: { targetId: string; candidate: any }) => {
+      const { targetId, candidate } = data;
+      const targetSockets = userSocketsMap.get(targetId);
+      if (targetSockets) {
+        targetSockets.forEach((sId) => {
+          io.to(sId).emit('ice_candidate', {
+            senderId: userId,
+            candidate,
+          });
+        });
+      }
+    });
+
+    // End Call (Either participant hangs up)
+    socket.on('end_call', (data: { targetId: string }) => {
+      const { targetId } = data;
+      console.log(`🛑 Call ended by ${user.username} for target ${targetId}`);
+      
+      if (targetId) {
+        const targetSockets = userSocketsMap.get(targetId);
+        if (targetSockets) {
+          targetSockets.forEach((sId) => {
+            io.to(sId).emit('call_ended', { senderId: userId });
+          });
+        }
+      }
     });
 
     // Event: disconnect

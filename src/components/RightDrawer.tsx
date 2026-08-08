@@ -1,5 +1,5 @@
 import React from 'react';
-import { X, Mic, Users, Calendar, ShieldCheck } from 'lucide-react';
+import { X, Mic, Users, ShieldCheck } from 'lucide-react';
 import { useChatStore } from '../store/useChatStore';
 
 export const RightDrawer: React.FC = () => {
@@ -23,15 +23,22 @@ export const RightDrawer: React.FC = () => {
   const audioMessages = messages.filter((m) => m.type === 'audio');
 
   return (
-    <div className="w-80 h-full bg-slate-900 border-l border-slate-800 flex flex-col shrink-0 text-slate-100 z-20 shadow-xl">
-      {/* Header */}
-      <div className="p-4 bg-slate-950 flex items-center justify-between border-b border-slate-800">
-        <h3 className="font-semibold text-sm uppercase tracking-wider text-slate-400">
+    <>
+      {/* Mobile Backdrop Overlay */}
+      <div
+        className="fixed inset-0 bg-black/50 z-30 md:hidden"
+        onClick={toggleRightDrawer}
+      />
+
+      <div className="fixed md:relative inset-y-0 right-0 z-40 w-full sm:w-80 h-full bg-white border-l border-[#d1d7db] flex flex-col shrink-0 text-gray-900 shadow-2xl md:shadow-none">
+        {/* Header */}
+      <div className="p-4 bg-[#f0f2f5] flex items-center justify-between border-b border-[#e9edef]">
+        <h3 className="font-semibold text-xs uppercase tracking-wider text-gray-600">
           {activeChat.isGroup ? 'Group Info' : 'Contact Info'}
         </h3>
         <button
           onClick={toggleRightDrawer}
-          className="p-1 hover:bg-slate-800 rounded-full text-slate-400 hover:text-white transition-colors"
+          className="p-1 hover:bg-gray-200 rounded-full text-gray-600 hover:text-gray-900 transition-colors"
         >
           <X className="w-5 h-5" />
         </button>
@@ -39,7 +46,7 @@ export const RightDrawer: React.FC = () => {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {/* Main Details */}
-        <div className="flex flex-col items-center text-center pb-4 border-b border-slate-800">
+        <div className="flex flex-col items-center text-center pb-4 border-b border-[#e9edef]">
           <img
             src={
               activeChat.isGroup
@@ -47,12 +54,12 @@ export const RightDrawer: React.FC = () => {
                 : otherUser?.avatarUrl || `https://api.dicebear.com/7.x/bottts/svg?seed=${otherUser?.username}`
             }
             alt="Profile"
-            className="w-20 h-20 rounded-full object-cover border-2 border-emerald-500 shadow-md mb-3"
+            className="w-20 h-20 rounded-full object-cover border-2 border-[#00a884] shadow-md mb-3"
           />
-          <h2 className="font-bold text-lg text-slate-100">
+          <h2 className="font-bold text-lg text-gray-900">
             {activeChat.isGroup ? activeChat.name : otherUser?.username}
           </h2>
-          <p className="text-xs text-slate-400 mt-0.5">
+          <p className="text-xs text-gray-500 mt-0.5">
             {activeChat.isGroup
               ? `${activeChat.participants.length} participants`
               : otherUser?.email}
@@ -60,8 +67,8 @@ export const RightDrawer: React.FC = () => {
 
           {!activeChat.isGroup && (
             <div className="mt-2 flex items-center gap-1.5 text-xs">
-              <span className={`w-2 h-2 rounded-full ${isOtherOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-500'}`} />
-              <span className={isOtherOnline ? 'text-emerald-400 font-medium' : 'text-slate-400'}>
+              <span className={`w-2 h-2 rounded-full ${isOtherOnline ? 'bg-[#25d366] animate-pulse' : 'bg-gray-400'}`} />
+              <span className={isOtherOnline ? 'text-[#00a884] font-semibold' : 'text-gray-500'}>
                 {isOtherOnline ? 'Active Now' : 'Offline'}
               </span>
             </div>
@@ -71,8 +78,8 @@ export const RightDrawer: React.FC = () => {
         {/* Group Participants */}
         {activeChat.isGroup && (
           <div className="space-y-3">
-            <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-              <Users className="w-4 h-4 text-emerald-500" />
+            <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              <Users className="w-4 h-4 text-[#00a884]" />
               <span>Participants ({activeChat.participants.length})</span>
             </div>
             <div className="space-y-2">
@@ -81,7 +88,7 @@ export const RightDrawer: React.FC = () => {
                 return (
                   <div
                     key={participant._id}
-                    className="flex items-center gap-3 p-2 bg-slate-800/50 rounded-xl"
+                    className="flex items-center gap-3 p-2 bg-[#f0f2f5] rounded-xl border border-[#e9edef]"
                   >
                     <div className="relative">
                       <img
@@ -90,14 +97,14 @@ export const RightDrawer: React.FC = () => {
                         className="w-8 h-8 rounded-full object-cover"
                       />
                       {isOnline && (
-                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border border-slate-900 rounded-full" />
+                        <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-[#25d366] border border-white rounded-full" />
                       )}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <div className="text-xs font-medium text-slate-200 truncate">
+                      <div className="text-xs font-medium text-gray-900 truncate">
                         {participant.username} {participant._id === user?._id && '(You)'}
                       </div>
-                      <div className="text-[10px] text-slate-400 truncate">{participant.email}</div>
+                      <div className="text-[10px] text-gray-500 truncate">{participant.email}</div>
                     </div>
                   </div>
                 );
@@ -108,18 +115,18 @@ export const RightDrawer: React.FC = () => {
 
         {/* Voice Notes & Media */}
         <div className="space-y-3">
-          <div className="flex items-center gap-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-            <Mic className="w-4 h-4 text-emerald-500" />
+          <div className="flex items-center gap-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            <Mic className="w-4 h-4 text-[#00a884]" />
             <span>Voice Notes ({audioMessages.length})</span>
           </div>
 
           {audioMessages.length === 0 ? (
-            <p className="text-xs text-slate-500 italic">No voice notes shared yet</p>
+            <p className="text-xs text-gray-400 italic">No voice notes shared yet</p>
           ) : (
             <div className="space-y-2">
               {audioMessages.map((msg) => (
-                <div key={msg._id} className="p-2 bg-slate-800/40 rounded-lg text-xs">
-                  <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+                <div key={msg._id} className="p-2.5 bg-[#f0f2f5] rounded-xl text-xs border border-[#e9edef]">
+                  <div className="flex justify-between text-[10px] text-gray-500 mb-1 font-mono">
                     <span>
                       {typeof msg.senderId === 'object' ? msg.senderId.username : 'User'}
                     </span>
@@ -133,13 +140,14 @@ export const RightDrawer: React.FC = () => {
         </div>
 
         {/* Security / Encryption Notice */}
-        <div className="p-3 bg-emerald-950/40 border border-emerald-800/50 rounded-xl flex items-start gap-2.5 text-xs text-emerald-300">
-          <ShieldCheck className="w-5 h-5 shrink-0 text-emerald-400 mt-0.5" />
+        <div className="p-3 bg-[#e8f8f5] border border-[#00a884]/30 rounded-xl flex items-start gap-2.5 text-xs text-[#006e56]">
+          <ShieldCheck className="w-5 h-5 shrink-0 text-[#00a884] mt-0.5" />
           <p>
-            Messages and calls are end-to-end encrypted. Socket.io JWT authentication protects real-time data streams.
+            Messages and WebRTC 1-on-1 calls are end-to-end encrypted with Socket.io JWT authentication.
           </p>
         </div>
       </div>
     </div>
-  );
+  </>
+);
 };

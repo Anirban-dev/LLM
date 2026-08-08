@@ -2,11 +2,22 @@ import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
-import { authenticateJwt } from '../passport';
+import { GoogleGenAI } from '@google/genai';
+import { authenticateJwt } from '../auth';
 import { Message } from '../models/Message';
 import { Chat } from '../models/Chat';
+import { processMessageForPersona } from '../services/personaExtractor';
 
 const router = Router();
+
+// Lazy initialize GoogleGenAI client
+let aiClient: GoogleGenAI | null = null;
+function getAIClient(): GoogleGenAI | null {
+  if (!aiClient && process.env.GEMINI_API_KEY) {
+    aiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  }
+  return aiClient;
+}
 
 // Ensure uploads folder exists
 const uploadsDir = path.join(process.cwd(), 'uploads');
@@ -38,12 +49,12 @@ const upload = multer({
   },
 });
 
-// Upload Audio Endpoint
+// Upload Audio Endpoint with Server-Side STT (Speech-To-Text)
 router.post(
   '/upload-audio',
   authenticateJwt,
   upload.single('audio'),
-  (req: Request, res: Response): void => {
+  async (req: Request, res: Response): Promise<void> => {
     try {
       if (!req.file) {
         res.status(400).json({ message: 'No audio file uploaded' });
@@ -52,10 +63,49 @@ router.post(
 
       const duration = req.body.duration ? parseFloat(req.body.duration) : 0;
       const mediaUrl = `/uploads/${req.file.filename}`;
+      const filePath = req.file.path;
+
+      let transcript = '';
+
+      // Server-Side STT Processing via Gemini 2.5 Flash
+      const ai = getAIClient();
+      if (ai) {
+        try {
+          const fileData = fs.readFileSync(filePath);
+          const base64Audio = fileData.toString('base64');
+          const mimeType = req.file.mimetype || 'audio/webm';
+
+          const response = await ai.models.generateContent({
+            model: 'gemini-2.5-flash',
+            contents: [
+              {
+                inlineData: {
+                  mimeType,
+                  data: base64Audio,
+                },
+              },
+              {
+                text: 'Transcribe this voice recording accurately into clear text. Respond ONLY with the raw transcript without any commentary or quotes.',
+              },
+            ],
+          });
+
+          if (response.text) {
+            transcript = response.text.trim();
+          }
+        } catch (sttErr) {
+          console.error('Server STT Error:', sttErr);
+        }
+      }
+
+      if (!transcript) {
+        transcript = `🎤 Voice note (${Math.round(duration || 0)}s)`;
+      }
 
       res.json({
         mediaUrl,
         duration,
+        transcript,
         filename: req.file.filename,
         size: req.file.size,
       });
@@ -120,6 +170,13 @@ router.post('/', authenticateJwt, async (req: Request, res: Response): Promise<v
     // Update Chat lastMessage
     chat.lastMessage = message._id as any;
     await chat.save();
+
+    // Asynchronously trigger Persona Extractor in background
+    if (content) {
+      processMessageForPersona(senderId.toString(), content).catch(err => {
+        console.error('Persona extraction error:', err);
+      });
+    }
 
     const populatedMessage = await Message.findById(message._id).populate('senderId', '-passwordHash');
 

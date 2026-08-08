@@ -16,6 +16,7 @@ export interface Message {
   content?: string;
   mediaUrl?: string;
   duration?: number;
+  transcript?: string;
   createdAt: string;
 }
 
@@ -33,3 +34,13 @@ export interface AuthResponse {
   token: string;
   user: User;
 }
+
+export type CallStatus = 'idle' | 'calling' | 'incoming' | 'connected';
+
+export interface CallData {
+  caller: User;
+  recipient: User;
+  offer?: any;
+  answer?: any;
+}
+

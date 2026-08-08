@@ -1,6 +1,6 @@
 {
-  "name": "WhatsApp Web Chat",
-  "description": "Real-time web chat application with voice notes, typing indicators, online status, and group messaging.",
+  "name": "ChatApp",
+  "description": "Real-time web & mobile chat with WebRTC voice calling, AI Personas, voice transcription, and Capacitor Android support.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

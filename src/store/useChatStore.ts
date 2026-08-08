@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { io, Socket } from 'socket.io-client';
-import { User, Chat, Message } from '../types';
+import { User, Chat, Message, CallStatus } from '../types';
 
 interface ChatStore {
   user: User | null;
@@ -15,6 +15,21 @@ interface ChatStore {
   searchQuery: string;
   isNewChatOpen: boolean;
   isNewGroupOpen: boolean;
+  isPersonaModalOpen: boolean;
+  isMobileSidebarOpen: boolean;
+  isAndroidModalOpen: boolean;
+
+  // WebRTC Call State
+  callStatus: CallStatus;
+  incomingCaller: User | null;
+  activeCallPeer: User | null;
+  incomingOffer: any | null;
+  localStream: MediaStream | null;
+  remoteStream: MediaStream | null;
+  peerConnection: RTCPeerConnection | null;
+  isMuted: boolean;
+  isSpeakerOn: boolean;
+  callDuration: number;
 
   // Actions
   setAuth: (token: string, user: User) => void;
@@ -24,11 +39,14 @@ interface ChatStore {
   
   fetchChats: () => Promise<void>;
   selectChat: (chatId: string) => Promise<void>;
+  deselectChat: () => void;
   createDirectChat: (recipientId: string) => Promise<Chat | null>;
   createGroupChat: (name: string, participantIds: string[]) => Promise<Chat | null>;
   
   fetchMessages: (chatId: string) => Promise<void>;
   sendMessage: (content?: string, mediaUrl?: string, duration?: number) => Promise<void>;
+  uploadAudioVoiceNote: (audioBlob: Blob, duration: number) => Promise<void>;
+  speakText: (text: string) => Promise<string | null>;
   
   startTyping: () => void;
   stopTyping: () => void;
@@ -37,7 +55,29 @@ interface ChatStore {
   setSearchQuery: (query: string) => void;
   setNewChatOpen: (isOpen: boolean) => void;
   setNewGroupOpen: (isOpen: boolean) => void;
+  setPersonaModalOpen: (isOpen: boolean) => void;
+  setMobileSidebarOpen: (isOpen: boolean) => void;
+  setAndroidModalOpen: (isOpen: boolean) => void;
+  toggleMobileSidebar: () => void;
+
+  // WebRTC Call Actions
+  initiateCall: (recipient: User) => Promise<void>;
+  acceptCall: () => Promise<void>;
+  declineCall: () => void;
+  endCall: () => void;
+  toggleMute: () => void;
+  toggleSpeaker: () => void;
+  setRemoteStream: (stream: MediaStream | null) => void;
 }
+
+const ICE_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ],
+};
+
+let callTimerInterval: any = null;
 
 export const useChatStore = create<ChatStore>((set, get) => ({
   user: JSON.parse(localStorage.getItem('chat_user') || 'null'),
@@ -52,6 +92,21 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   searchQuery: '',
   isNewChatOpen: false,
   isNewGroupOpen: false,
+  isPersonaModalOpen: false,
+  isMobileSidebarOpen: false,
+  isAndroidModalOpen: false,
+
+  // Call initial state
+  callStatus: 'idle',
+  incomingCaller: null,
+  activeCallPeer: null,
+  incomingOffer: null,
+  localStream: null,
+  remoteStream: null,
+  peerConnection: null,
+  isMuted: false,
+  isSpeakerOn: true,
+  callDuration: 0,
 
   setAuth: (token, user) => {
     localStorage.setItem('chat_token', token);
@@ -95,12 +150,11 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     socket.on('receive_message', (message: Message) => {
       const { activeChatId, messages } = get();
       if (message.chatId === activeChatId) {
-        // Idempotency check: avoid adding duplicate
         if (!messages.some((m) => m._id === message._id)) {
           set({ messages: [...messages, message] });
         }
       }
-      get().fetchChats(); // Refresh chat list last messages
+      get().fetchChats();
     });
 
     // Real-time chat list update
@@ -113,7 +167,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       } else {
         newChats.unshift(updatedChat);
       }
-      // Sort chats by updatedAt
       newChats.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
       set({ chats: newChats });
     });
@@ -156,6 +209,54 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       });
     });
 
+    // =============================
+    // WebRTC Socket Listeners
+    // =============================
+
+    socket.on('incoming_call', ({ caller, offer }) => {
+      console.log('📞 Incoming WebRTC call from', caller.username);
+      set({
+        callStatus: 'incoming',
+        incomingCaller: caller,
+        incomingOffer: offer,
+      });
+    });
+
+    socket.on('call_accepted', async ({ answer }) => {
+      console.log('✅ Call accepted by peer');
+      const { peerConnection } = get();
+      if (peerConnection && answer) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+        set({ callStatus: 'connected', callDuration: 0 });
+
+        if (callTimerInterval) clearInterval(callTimerInterval);
+        callTimerInterval = setInterval(() => {
+          set((state) => ({ callDuration: state.callDuration + 1 }));
+        }, 1000);
+      }
+    });
+
+    socket.on('call_declined', ({ username }) => {
+      console.log('❌ Call was declined by', username);
+      get().endCall();
+    });
+
+    socket.on('ice_candidate', async ({ candidate }) => {
+      const { peerConnection } = get();
+      if (peerConnection && candidate) {
+        try {
+          await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (e) {
+          console.error('Error adding ICE candidate:', e);
+        }
+      }
+    });
+
+    socket.on('call_ended', () => {
+      console.log('🛑 Call ended by peer');
+      get().endCall();
+    });
+
     set({ socket });
   },
 
@@ -179,7 +280,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         const chats = await res.json();
         set({ chats });
 
-        // Update online status map for participants
         const onlineMap: Record<string, { isOnline: boolean; lastSeen?: string }> = {};
         chats.forEach((chat: Chat) => {
           chat.participants.forEach((p) => {
@@ -202,11 +302,19 @@ export const useChatStore = create<ChatStore>((set, get) => ({
       socket.emit('leave_chat', activeChatId);
     }
 
-    set({ activeChatId: chatId });
+    set({ activeChatId: chatId, isMobileSidebarOpen: false });
     if (socket) {
       socket.emit('join_chat', chatId);
     }
     await fetchMessages(chatId);
+  },
+
+  deselectChat: () => {
+    const { socket, activeChatId } = get();
+    if (activeChatId && socket) {
+      socket.emit('leave_chat', activeChatId);
+    }
+    set({ activeChatId: null, messages: [], isMobileSidebarOpen: false });
   },
 
   createDirectChat: async (recipientId) => {
@@ -284,7 +392,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
 
     const type = mediaUrl ? 'audio' : 'text';
 
-    // Prefer Socket.io for immediate real-time delivery
     if (socket && socket.connected) {
       socket.emit('send_message', {
         chatId: activeChatId,
@@ -294,7 +401,6 @@ export const useChatStore = create<ChatStore>((set, get) => ({
         duration,
       });
     } else if (token) {
-      // Fallback REST POST
       try {
         const res = await fetch('/api/messages', {
           method: 'POST',
@@ -322,6 +428,59 @@ export const useChatStore = create<ChatStore>((set, get) => ({
     }
   },
 
+  // Upload Voice Note with Server-Side STT transcription
+  uploadAudioVoiceNote: async (audioBlob, duration) => {
+    const { token, sendMessage } = get();
+    if (!token) return;
+
+    try {
+      const formData = new FormData();
+      formData.append('audio', audioBlob, `voice-${Date.now()}.webm`);
+      formData.append('duration', duration.toString());
+
+      const res = await fetch('/api/messages/upload-audio', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+        body: formData,
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        const { mediaUrl, transcript } = data;
+        await sendMessage(transcript || '🎤 Voice note', mediaUrl, duration);
+      }
+    } catch (err) {
+      console.error('Voice note upload error:', err);
+    }
+  },
+
+  // TTS Generation Endpoint caller
+  speakText: async (text: string) => {
+    const { token } = get();
+    if (!token || !text) return null;
+
+    try {
+      const res = await fetch('/api/tts/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ text }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        return data.audioUrl as string;
+      }
+    } catch (err) {
+      console.error('TTS generation request failed:', err);
+    }
+    return null;
+  },
+
   startTyping: () => {
     const { socket, activeChatId } = get();
     if (socket && activeChatId) {
@@ -340,4 +499,172 @@ export const useChatStore = create<ChatStore>((set, get) => ({
   setSearchQuery: (searchQuery) => set({ searchQuery }),
   setNewChatOpen: (isNewChatOpen) => set({ isNewChatOpen }),
   setNewGroupOpen: (isNewGroupOpen) => set({ isNewGroupOpen }),
+  setPersonaModalOpen: (isPersonaModalOpen) => set({ isPersonaModalOpen }),
+  setMobileSidebarOpen: (isMobileSidebarOpen) => set({ isMobileSidebarOpen }),
+  setAndroidModalOpen: (isAndroidModalOpen) => set({ isAndroidModalOpen }),
+  toggleMobileSidebar: () => set((state) => ({ isMobileSidebarOpen: !state.isMobileSidebarOpen })),
+
+  // =============================
+  // WebRTC Voice Call Actions
+  // =============================
+
+  initiateCall: async (recipient: User) => {
+    const { socket, user } = get();
+    if (!socket || !recipient) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('ice_candidate', {
+            targetId: recipient._id,
+            candidate: event.candidate,
+          });
+        }
+      };
+
+      pc.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+          set({ remoteStream: event.streams[0] });
+        }
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      socket.emit('call_user', {
+        recipientId: recipient._id,
+        offer,
+      });
+
+      set({
+        callStatus: 'calling',
+        activeCallPeer: recipient,
+        localStream: stream,
+        peerConnection: pc,
+        isMuted: false,
+      });
+    } catch (err) {
+      console.error('Error initiating WebRTC call:', err);
+    }
+  },
+
+  acceptCall: async () => {
+    const { socket, incomingCaller, incomingOffer } = get();
+    if (!socket || !incomingCaller || !incomingOffer) return;
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const pc = new RTCPeerConnection(ICE_SERVERS);
+
+      stream.getTracks().forEach((track) => pc.addTrack(track, stream));
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('ice_candidate', {
+            targetId: incomingCaller._id,
+            candidate: event.candidate,
+          });
+        }
+      };
+
+      pc.ontrack = (event) => {
+        if (event.streams && event.streams[0]) {
+          set({ remoteStream: event.streams[0] });
+        }
+      };
+
+      await pc.setRemoteDescription(new RTCSessionDescription(incomingOffer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+
+      socket.emit('call_accepted', {
+        callerId: incomingCaller._id,
+        answer,
+      });
+
+      if (callTimerInterval) clearInterval(callTimerInterval);
+      callTimerInterval = setInterval(() => {
+        set((state) => ({ callDuration: state.callDuration + 1 }));
+      }, 1000);
+
+      set({
+        callStatus: 'connected',
+        activeCallPeer: incomingCaller,
+        localStream: stream,
+        peerConnection: pc,
+        incomingCaller: null,
+        incomingOffer: null,
+        callDuration: 0,
+        isMuted: false,
+      });
+    } catch (err) {
+      console.error('Error accepting call:', err);
+    }
+  },
+
+  declineCall: () => {
+    const { socket, incomingCaller } = get();
+    if (socket && incomingCaller) {
+      socket.emit('call_declined', { callerId: incomingCaller._id });
+    }
+    set({
+      callStatus: 'idle',
+      incomingCaller: null,
+      incomingOffer: null,
+    });
+  },
+
+  endCall: () => {
+    const { socket, activeCallPeer, peerConnection, localStream } = get();
+
+    if (socket && activeCallPeer) {
+      socket.emit('end_call', { targetId: activeCallPeer._id });
+    }
+
+    if (callTimerInterval) {
+      clearInterval(callTimerInterval);
+      callTimerInterval = null;
+    }
+
+    if (localStream) {
+      localStream.getTracks().forEach((track) => track.stop());
+    }
+
+    if (peerConnection) {
+      peerConnection.close();
+    }
+
+    set({
+      callStatus: 'idle',
+      incomingCaller: null,
+      incomingOffer: null,
+      activeCallPeer: null,
+      localStream: null,
+      remoteStream: null,
+      peerConnection: null,
+      callDuration: 0,
+      isMuted: false,
+    });
+  },
+
+  toggleMute: () => {
+    const { localStream, isMuted } = get();
+    if (localStream) {
+      localStream.getAudioTracks().forEach((track) => {
+        track.enabled = isMuted; // Toggle enabled
+      });
+      set({ isMuted: !isMuted });
+    }
+  },
+
+  toggleSpeaker: () => {
+    set((state) => ({ isSpeakerOn: !state.isSpeakerOn }));
+  },
+
+  setRemoteStream: (remoteStream) => set({ remoteStream }),
 }));

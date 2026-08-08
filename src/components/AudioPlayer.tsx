@@ -70,33 +70,33 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ src, duration: initial
   };
 
   return (
-    <div className={`flex items-center gap-3 p-2 rounded-xl min-w-[220px] sm:min-w-[260px] ${
-      isSender ? 'bg-emerald-700/30 text-emerald-950 dark:text-emerald-100' : 'bg-slate-200/80 dark:bg-slate-700/80 text-slate-900 dark:text-slate-100'
-    }`}>
+    <div
+      className={`flex items-center gap-3 p-2.5 rounded-2xl min-w-[210px] sm:min-w-[260px] ${
+        isSender ? 'bg-[#00a884]/15 text-gray-900' : 'bg-gray-100 text-gray-900'
+      }`}
+    >
       <audio ref={audioRef} src={src} preload="metadata" />
 
       <button
         onClick={togglePlay}
-        className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 shadow-sm transition-transform active:scale-95 ${
-          isSender ? 'bg-emerald-600 hover:bg-emerald-500 text-white' : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-        }`}
+        className="w-11 h-11 rounded-full flex items-center justify-center shrink-0 bg-[#00a884] hover:bg-[#008f70] text-white shadow-md transition-transform active:scale-95 touch-manipulation"
       >
         {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current ml-0.5" />}
       </button>
 
-      <div className="flex-1 flex flex-col justify-center gap-1">
+      <div className="flex-1 flex flex-col justify-center gap-1.5 min-w-0">
         <input
           type="range"
           min="0"
           max={duration || 100}
           value={currentTime}
           onChange={handleSeek}
-          className="w-full h-1.5 bg-slate-300 dark:bg-slate-600 rounded-lg appearance-none cursor-pointer accent-emerald-500"
+          className="w-full h-2 bg-gray-300 rounded-lg appearance-none cursor-pointer accent-[#00a884] touch-none"
         />
-        <div className="flex justify-between items-center text-[11px] opacity-75 font-mono">
+        <div className="flex justify-between items-center text-xs font-mono text-gray-600">
           <span>{formatTime(currentTime)}</span>
           <div className="flex items-center gap-1">
-            <Volume2 className="w-3 h-3" />
+            <Volume2 className="w-3.5 h-3.5 text-[#00a884]" />
             <span>{formatTime(duration)}</span>
           </div>
         </div>
