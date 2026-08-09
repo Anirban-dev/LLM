@@ -1,61 +1,112 @@
-# Serving the model (OpenAI-compatible API)
+# Serving the Mini-LLM (OpenAI-Compatible API & Streamlit UI)
 
-Run every command below from inside `server/`. This folder is standalone —
-it doesn't need `datasets`, TinyStories, or anything training-related,
-just enough to load a checkpoint and serve it. See [README.md](README.md)
-for how this folder relates to `training/`.
+Run every command below from inside the `server/` folder. This directory is standalone — it doesn't need `datasets`, TinyStories, or training logic, just enough to load model checkpoints and serve them via an OpenAI-compatible FastAPI backend and a Streamlit frontend.
 
-## Setup
+---
+
+## Directory Structure
+
+```text
+TRAINING.md
+├── server/
+│   ├── .venv/
+│   ├── app/
+│   │   ├── __init__.py
+│   │   ├── inference.py
+│   │   ├── model.py
+│   │   ├── quant_utils.py
+│   │   └── server.py
+│   ├── streamlit_app.py   <-- Streamlit Web UI
+│   ├── pyproject.toml     <-- Dependencies (FastAPI, Streamlit, etc.)
+│   └── uv.lock
+├── training/
+└── README.md
+```
+
+---
+
+## Setup & Dependencies
+
+Install all required dependencies using `uv`:
 
 ```bash
+cd server
 uv sync
 ```
-Creates a `.venv` here and installs everything needed to *run* the model
-(torch, tokenizers, fastapi, uvicorn) — nothing training-related.
 
-**This is the only thing you run.** `chat.py` (in `training/`) is a
-separate, terminal-only way to talk to the model — the server doesn't
-call it, launch it, or need it running. Starting the server below is the
-entire startup process; nothing else needs to be running alongside it.
+This creates a local `.venv` and installs everything required for model inference and the web UI:
+- `torch`, `tokenizers`, `fastapi`, `uvicorn`, `pydantic`
+- `streamlit`, `requests`
 
-## Start the server
+---
+
+## Running the Application
+
+To run the complete system, you will use **two separate terminal windows**.
+
+### Step 1: Start the API Server (Terminal 1)
+
+Standard full-precision model server (runs on `http://localhost:8000`):
 
 ```bash
 uv run python -m app.server
 ```
-Loads the full-precision model from `../training/checkpoints` automatically
-and starts serving on `http://localhost:8000`.
+
+#### Server Options & Flags:
+
+- **Quantized CPU Inference (4-bit / 2-bit):**
+  ```bash
+  uv run python -m app.server --quantized --bits 4
+  ```
+  *(Requires running `quantize.py` inside `training/` beforehand).*
+
+- **Custom Port:**
+  ```bash
+  uv run python -m app.server --port 9000
+  ```
+
+- **Custom Checkpoint Path:**
+  ```bash
+  uv run python -m app.server --checkpoint_dir ../training/checkpoints
+  ```
+
+---
+
+### Step 2: Start the Streamlit Web UI (Terminal 2)
+
+In a new terminal window, navigate to `server/` and start the Streamlit app:
 
 ```bash
-uv run python -m app.server --quantized --bits 4
+uv run streamlit run streamlit_app.py
 ```
-Serve the quantized CPU model instead (must have run `quantize.py` in
-`training/` first — see [TRAINING.md](TRAINING.md)).
 
-```bash
-uv run python -m app.server --port 9000
-```
-Use a different port.
+This launches the web interface at `http://localhost:8501`, featuring:
+- **Streaming Mode:** Real-time token streaming using Server-Sent Events (SSE).
+- **Non-Streaming Mode:** Single-shot complete response fetching.
+- **Configurable Endpoint & Model Name:** Options to adjust host, port, or target model name in the sidebar.
 
-```bash
-uv run python -m app.server --checkpoint_dir /some/other/path
-```
-Only needed if you've moved the checkpoints somewhere other than
-`../training/checkpoints`.
+---
+## Direct API Usage (CLI / SDK)
 
-## Talk to it over the API
+Since the server uses OpenAI-compatible schemas, you can query it via `curl` or the `openai` Python SDK.
+
+### cURL Example
 
 ```bash
 curl http://localhost:8000/v1/chat/completions \
   -H "Content-Type: application/json" \
-  -d '{"model": "mini-llm", "messages": [{"role": "user", "content": "Why is the sky blue?"}]}'
+  -d '{
+        "model": "mini-llm",
+        "messages": [{"role": "user", "content": "Why is the sky blue?"}],
+        "stream": false
+      }'
 ```
 
-Or with the OpenAI Python SDK (works because the server speaks the same
-`/v1/...` shape as OpenAI's API):
+### OpenAI Python SDK Example
 
 ```python
 from openai import OpenAI
+
 client = OpenAI(base_url="http://localhost:8000/v1", api_key="not-needed")
 
 resp = client.chat.completions.create(
@@ -63,34 +114,41 @@ resp = client.chat.completions.create(
     messages=[{"role": "user", "content": "Why is the sky blue?"}],
     stream=True,
 )
+
 for chunk in resp:
     print(chunk.choices[0].delta.content or "", end="", flush=True)
 ```
 
-## Endpoints
+---
 
-| Endpoint | Does |
+## API Endpoints Summary
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/v1/models` | `GET` | Lists available models served by this server instance. |
+| `/v1/chat/completions` | `POST` | Chat-style completions (`stream: true/false` supported). |
+| `/v1/completions` | `POST` | Plain text completion (`stream: true/false` supported). |
+| `/health` | `GET` | Health check returning `{"status": "ok"}` once loaded. |
+
+---
+
+## Server Directory File Breakdown
+
+| File | Function |
 |---|---|
-| `GET /v1/models` | Lists the one model this server serves |
-| `POST /v1/chat/completions` | Chat-style request/response, `stream: true` supported |
-| `POST /v1/completions` | Plain prompt-in/text-out, `stream: true` supported |
-| `GET /health` | Returns `{"status": "ok"}` once the model's loaded |
+| `streamlit_app.py` | Web UI supporting streaming and non-streaming model responses |
+| `app/server.py` | FastAPI application providing OpenAI-compatible API routes |
+| `app/inference.py` | Inference engine handling generation & token streaming |
+| `app/model.py` | Transformer architecture definition |
+| `app/quant_utils.py` | Utilities for loading quantized checkpoints (INT4/INT2) |
+| `pyproject.toml` | `uv` project definition and dependencies |
 
-## Files in `server/`
+---
 
-| File | What it does |
-|---|---|
-| `app/server.py` | The FastAPI app — the OpenAI-compatible endpoints |
-| `app/inference.py` | Loads the model/tokenizer, runs generation (incl. streaming) |
-| `app/model.py` | Same model class as `training/model.py` (copied, not shared — see [NOTES.md](NOTES.md)) |
-| `app/quant_utils.py` | Same as `training/quant_utils.py` — needed to load INT4/INT2 checkpoints |
-| `pyproject.toml` | `uv`-managed dependencies, inference-only |
+## Important Limitation: Single-Turn Memory
 
-## Important limitation — single-turn, not real multi-turn chat
+The model was fine-tuned on single instruction-response pairs rather than multi-turn conversations. `/v1/chat/completions` accepts a full `messages` array for software client compatibility, but internally uses only:
+- The **most recent `system` message** (as prompt context).
+- The **most recent `user` message** (as the instruction).
 
-The model was fine-tuned on single instruction → single response pairs,
-not on multi-turn conversations. `/v1/chat/completions` accepts a full
-`messages` array for compatibility with chat clients, but internally only
-uses the most recent `system` message (as context) and the most recent
-`user` message (as the instruction) — earlier turns are accepted but
-ignored. The model has no real memory of prior turns in the conversation.
+Earlier message turns in the array are ignored.
