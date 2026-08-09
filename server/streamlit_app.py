@@ -8,10 +8,11 @@ st.title("🤖 Local AI API Explorer")
 
 # Sidebar controls for endpoint configuration
 st.sidebar.header("Configuration")
-api_url = st.sidebar.text_input(
-    "API Endpoint", value="http://localhost:8000/v1/chat/completions"
-)
-model_name = st.sidebar.text_input("Model Name", value="mini-llm")
+api_url = "http://localhost:8000/v1/chat/completions"
+st.sidebar.caption("API Endpoint")
+st.sidebar.code(api_url, language="text")
+
+model_name = "mini-llm"
 
 # Toggle between Streaming and Non-Streaming mode
 stream_mode = st.sidebar.toggle("Enable Streaming Mode", value=True)
