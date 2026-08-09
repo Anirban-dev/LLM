@@ -1,0 +1,17 @@
+{
+  "short_name": "ChatApp",
+  "name": "ChatApp Real-Time Web & Mobile",
+  "description": "Real-time chat app with WebRTC voice calls, AI Clone Personas, and voice notes.",
+  "icons": [
+    {
+      "src": "https://api.dicebear.com/7.x/bottts/svg?seed=ChatApp",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#111b21",
+  "theme_color": "#00a884",
+  "display": "standalone",
+  "orientation": "portrait"
+}

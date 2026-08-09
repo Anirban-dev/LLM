@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  # 1. MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: chatapp-mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 2. SeaweedFS Distributed S3-Compatible Object Storage
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: chatapp-seaweedfs
+    restart: always
+    command: "server -s3 -s3.port=8333 -dir=/data -s3.allowEmptyFolder=true"
+    ports:
+      - "8333:8333"   # S3 API
+      - "9333:9333"   # Master UI
+      - "8888:8888"   # Filer API
+    volumes:
+      - seaweedfs_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8333/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # 3. ChatApp Full-Stack Node Application
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chatapp-app
+    restart: always
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - MONGO_URI=mongodb://mongodb:27017/chatapp-db
+      - S3_ENDPOINT=http://seaweedfs:8333
+      - S3_REGION=us-east-1
+      - S3_ACCESS_KEY=seaweedfs
+      - S3_SECRET_KEY=seaweedfs
+      - S3_BUCKET_NAME=chatapp-media
+      - S3_PUBLIC_URL=http://localhost:8333/chatapp-media
+      - JWT_SECRET=chatapp_secret_jwt_key_2026
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      seaweedfs:
+        condition: service_healthy
+    volumes:
+      - app_uploads:/app/uploads
+
+volumes:
+  mongo_data:
+  seaweedfs_data:
+  app_uploads:
