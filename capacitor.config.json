@@ -1,9 +1,0 @@
-{
-  "appId": "com.chatapp.mobile",
-  "appName": "ChatApp",
-  "webDir": "dist",
-  "bundledWebRuntime": false,
-  "server": {
-    "androidScheme": "https"
-  }
-}
