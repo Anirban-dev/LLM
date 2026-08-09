@@ -1,0 +1,16 @@
+[project]
+name = "mini-llm-server"
+version = "0.1.0"
+description = "OpenAI-compatible local API server for the trained Mini LLM"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.1.0",
+    "tokenizers>=0.15.0",
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "pydantic>=2.6.0",
+]
+
+# Inference-only — this deliberately excludes `datasets`, which the training
+# project needs for downloading TinyStories/Dolly/etc. but this server never
+# touches.

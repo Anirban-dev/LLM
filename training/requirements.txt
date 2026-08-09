@@ -1,0 +1,7 @@
+torch>=2.1.0
+tokenizers>=0.15.0
+
+# Needed for the built-in --dataset downloaders (tinystories, dolly) in
+# prepare_pretrain_data.py / prepare_data.py. Not needed if you bring your
+# own local file via --data instead.
+datasets>=2.18.0
