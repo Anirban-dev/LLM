@@ -155,7 +155,7 @@ router.get('/:chatId', authenticateJwt, async (req: Request, res: Response): Pro
 router.post('/send', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
   try {
     const userId = (req as any).user.userId;
-    const { chatId, content, type = 'text', mediaUrl, audioData } = req.body;
+    const { chatId, content, type = 'text', mediaUrl } = req.body;
 
     if (!chatId) {
       res.status(400).json({ message: 'chatId is required' });
@@ -168,7 +168,6 @@ router.post('/send', authenticateJwt, async (req: Request, res: Response): Promi
       content: content || '',
       type,
       mediaUrl,
-      audioData,
     });
 
     await Chat.findByIdAndUpdate(chatId, {
@@ -176,13 +175,15 @@ router.post('/send', authenticateJwt, async (req: Request, res: Response): Promi
       lastMessageTime: new Date(),
     });
 
-    const populatedMsg = await Message.findById(newMessage._id).populate(
-      'senderId',
-      'username avatar customStatus online'
-    );
+    const populatedMsg = newMessage
+      ? await Message.findById(newMessage._id).populate(
+          'senderId',
+          'username avatar customStatus online'
+        )
+      : null;
 
     // Process AI Persona reply asynchronously if applicable
-    processMessageForPersona(chatId, userId, content || '', type, mediaUrl).catch((err) =>
+    processMessageForPersona(userId, content || '').catch((err) =>
       console.error('AI Persona Trigger Error:', err)
     );
 

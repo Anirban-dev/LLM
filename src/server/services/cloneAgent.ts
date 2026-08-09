@@ -1,9 +1,6 @@
 import { GoogleGenAI } from '@google/genai';
 import { IPersona } from '../models/Persona';
 
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2:3b';
-
 export function buildCloneSystemPrompt(personaData: any): string {
   const name = personaData.name || 'Friend';
   const bio = personaData.bio || {};
@@ -44,35 +41,7 @@ export async function generateCloneResponse(
 ): Promise<string> {
   const systemPrompt = buildCloneSystemPrompt(personaData);
 
-  // 1. Try Ollama local CPU model
-  try {
-    const messages = [
-      { role: 'system', content: systemPrompt },
-      ...conversationHistory,
-      { role: 'user', content: userPrompt },
-    ];
-
-    const ollamaRes = await fetch(`${OLLAMA_URL}/api/chat`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        messages,
-        stream: false,
-      }),
-    });
-
-    if (ollamaRes.ok) {
-      const data: any = await ollamaRes.json();
-      if (data?.message?.content) {
-        return data.message.content;
-      }
-    }
-  } catch (err) {
-    // Ollama offline, proceed to fallback
-  }
-
-  // 2. Fallback to Gemini
+  // Use Gemini API
   if (process.env.GEMINI_API_KEY) {
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -83,7 +52,7 @@ export async function generateCloneResponse(
       });
       return response.text || `Hey! Doing well, thanks for messaging.`;
     } catch (err) {
-      console.error('Gemini clone agent fallback error:', err);
+      console.error('Gemini clone agent generation error:', err);
     }
   }
 

@@ -16,35 +16,25 @@ services:
       timeout: 5s
       retries: 5
 
-  # 2. Ollama Local CPU Model Runner (Llama 3.2 3B & Whisper)
-  ollama:
-    image: ollama/ollama:latest
-    container_name: chatapp-ollama
+  # 2. SeaweedFS Distributed S3-Compatible Object Storage
+  seaweedfs:
+    image: chrislusf/seaweedfs:latest
+    container_name: chatapp-seaweedfs
     restart: always
+    command: "server -s3 -s3.port=8333 -dir=/data -s3.allowEmptyFolder=true"
     ports:
-      - "11434:11434"
+      - "8333:8333"   # S3 API
+      - "9333:9333"   # Master UI
+      - "8888:8888"   # Filer API
     volumes:
-      - ollama_data:/root/.ollama
+      - seaweedfs_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8333/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
-  # 3. Automatic Ollama Model Pre-Loader
-  ollama-model-puller:
-    image: curlimages/curl:latest
-    container_name: chatapp-ollama-puller
-    depends_on:
-      - ollama
-    restart: "no"
-    entrypoint: >
-      /bin/sh -c "
-        echo 'Waiting for Ollama to be ready...';
-        while ! curl -s http://ollama:11434/api/tags > /dev/null; do sleep 2; done;
-        echo 'Pulling llama3.2:3b for CPU Persona Extraction & Clone Chat...';
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"llama3.2:3b\"}';
-        echo 'Pulling whisper model for local speech-to-text...';
-        curl -X POST http://ollama:11434/api/pull -d '{\"name\": \"whisper\"}';
-        echo 'Ollama models pulled successfully!';
-      "
-
-  # 4. ChatApp Full-Stack Node Application
+  # 3. ChatApp Full-Stack Node Application
   app:
     build:
       context: .
@@ -56,19 +46,23 @@ services:
     environment:
       - NODE_ENV=production
       - MONGO_URI=mongodb://mongodb:27017/chatapp-db
-      - OLLAMA_URL=http://ollama:11434
-      - OLLAMA_MODEL=llama3.2:3b
+      - S3_ENDPOINT=http://seaweedfs:8333
+      - S3_REGION=us-east-1
+      - S3_ACCESS_KEY=seaweedfs
+      - S3_SECRET_KEY=seaweedfs
+      - S3_BUCKET_NAME=chatapp-media
+      - S3_PUBLIC_URL=http://localhost:8333/chatapp-media
       - JWT_SECRET=chatapp_secret_jwt_key_2026
       - GEMINI_API_KEY=${GEMINI_API_KEY}
     depends_on:
       mongodb:
         condition: service_healthy
-      ollama:
-        condition: service_started
+      seaweedfs:
+        condition: service_healthy
     volumes:
       - app_uploads:/app/uploads
 
 volumes:
   mongo_data:
-  ollama_data:
+  seaweedfs_data:
   app_uploads:

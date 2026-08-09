@@ -1,14 +1,13 @@
 import { Router, Request, Response } from 'express';
 import { authenticateJwt } from '../auth';
 import { Chat } from '../models/Chat';
-import { Message } from '../models/Message';
 
 const router = Router();
 
 // Get all chats for logged in user
 router.get('/', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req.user as any)._id;
+    const userId = (req as any).user?._id || (req as any).user?.userId;
 
     const chats = await Chat.find({ participants: userId })
       .populate('participants', '-passwordHash')
@@ -27,7 +26,7 @@ router.get('/', authenticateJwt, async (req: Request, res: Response): Promise<vo
 // Create 1-on-1 or group chat
 router.post('/', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
   try {
-    const currentUserId = (req.user as any)._id;
+    const currentUserId = (req as any).user?._id || (req as any).user?.userId;
     const { recipientId, isGroup, name, participantIds } = req.body;
 
     if (isGroup) {
@@ -58,7 +57,7 @@ router.post('/', authenticateJwt, async (req: Request, res: Response): Promise<v
     }
 
     // Check if chat already exists
-    let existingChat = await Chat.findOne({
+    const existingChat = await Chat.findOne({
       isGroup: false,
       participants: { $all: [currentUserId, recipientId], $size: 2 },
     })
@@ -92,7 +91,7 @@ router.post('/', authenticateJwt, async (req: Request, res: Response): Promise<v
 router.get('/:chatId', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
   try {
     const { chatId } = req.params;
-    const userId = (req.user as any)._id;
+    const userId = (req as any).user?._id || (req as any).user?.userId;
 
     const chat = await Chat.findOne({ _id: chatId, participants: userId })
       .populate('participants', '-passwordHash')

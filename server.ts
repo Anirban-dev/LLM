@@ -1,6 +1,7 @@
 import express from 'express';
 import http from 'http';
 import path from 'path';
+import fs from 'fs';
 import cors from 'cors';
 import { createServer as createViteServer } from 'vite';
 import { connectDB } from './src/server/db';
@@ -10,6 +11,7 @@ import chatRoutes from './src/server/routes/chats';
 import messageRoutes from './src/server/routes/messages';
 import ttsRoutes from './src/server/routes/tts';
 import personaRoutes from './src/server/routes/persona';
+import storageRoutes from './src/server/routes/storage';
 
 async function startServer() {
   const app = express();
@@ -23,8 +25,11 @@ async function startServer() {
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
 
-  // Serve audio uploads folder statically
+  // Serve uploads folder statically in dev and production
   const uploadsDir = path.join(process.cwd(), 'uploads');
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
   app.use('/uploads', express.static(uploadsDir));
 
   // 3. API Routes
@@ -34,6 +39,7 @@ async function startServer() {
   app.use('/api/tts', ttsRoutes);
   app.use('/api/persona', personaRoutes);
   app.use('/api/personas', personaRoutes);
+  app.use('/api/storage', storageRoutes);
 
   // Health check endpoint
   app.get('/api/health', (req, res) => {
@@ -68,3 +74,4 @@ async function startServer() {
 startServer().catch((err) => {
   console.error('Fatal server startup error:', err);
 });
+

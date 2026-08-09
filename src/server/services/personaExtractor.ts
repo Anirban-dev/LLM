@@ -2,53 +2,47 @@ import { GoogleGenAI } from '@google/genai';
 import { Persona } from '../models/Persona';
 import { User } from '../models/User';
 
-const OLLAMA_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.2:3b';
+/**
+ * Lightweight local pattern extraction (Zero external API / Zero token cost)
+ * Extracts key traits, hobbies, or phrases using local regex sentence parsing.
+ */
+function extractLocalTraits(text: string): string {
+  if (!text) return '';
 
-// Fast local CPU signal extraction using Ollama (Zero cloud tokens)
-async function extractLocalSignals(userText: string, currentProfileSummary?: string): Promise<string> {
-  const prompt = `Extract raw key facts, hobbies, tone habits, catchphrases, and opinions from this text in short bullets.
-Text: "${userText}"
-${currentProfileSummary ? `Current Profile: "${currentProfileSummary}"` : ''}
-Bullets:`;
+  const clean = text.trim();
+  const sentences = clean.split(/[.!?\n]+/).map((s) => s.trim()).filter((s) => s.length > 5);
 
-  try {
-    const res = await fetch(`${OLLAMA_URL}/api/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: OLLAMA_MODEL,
-        prompt,
-        stream: false,
-        options: { num_predict: 128 }, // Keep local output tiny and fast
-      }),
-    });
+  const keySentenceMatches: string[] = [];
 
-    if (res.ok) {
-      const data: any = await res.json();
-      return (data.response || '').trim();
+  for (const sentence of sentences) {
+    if (
+      /\b(i am|i work|i love|i hate|my hobby|i like|always|never|favorite|im)\b/i.test(sentence)
+    ) {
+      keySentenceMatches.push(sentence.slice(0, 80));
     }
-  } catch (err) {
-    // Local Ollama offline, fallback to raw text
   }
-  return userText.slice(0, 300); // Fallback snippet
+
+  // Fallback to first sentence if no key patterns matched
+  if (keySentenceMatches.length === 0 && sentences.length > 0) {
+    keySentenceMatches.push(sentences[0].slice(0, 100));
+  }
+
+  return keySentenceMatches.slice(0, 3).join('; ');
 }
 
-// Ultra-low token 1-pass Cloud Persona Generator using Gemini
+/**
+ * Compact Cloud Persona Synthesizer using Gemini (Low Token Consumption)
+ */
 async function synthesizePersonaWithCloud(
   targetName: string,
-  rawSignals: string,
-  existingPersona?: any
+  compressedSignals: string
 ): Promise<any> {
-  if (!process.env.GEMINI_API_KEY) return null;
+  if (!process.env.GEMINI_API_KEY || !compressedSignals) return null;
 
-  // Compact prompt to minimize input and output token consumption
-  const prompt = `Return ONLY a minified JSON persona profile for "${targetName}".
-Signals: ${rawSignals}
-${existingPersona ? `Existing: ${JSON.stringify(existingPersona)}` : ''}
-
+  const prompt = `Synthesize concise JSON persona profile for "${targetName}".
+Traits: "${compressedSignals}"
 JSON Schema:
-{"name":"${targetName}","bio":{"occupation":"","hobbies":[],"facts":[],"relationships":[]},"style":{"tone":"","punctuation":"","frequently_used_phrases":[],"emoji_usage":""},"stances":[]}`;
+{"name":"${targetName}","bio":{"occupation":"","hobbies":[],"facts":[]},"style":{"tone":"friendly","punctuation":"standard","frequently_used_phrases":[],"emoji_usage":"occasional"}}`;
 
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
@@ -56,7 +50,7 @@ JSON Schema:
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
-        maxOutputTokens: 250, // Strict token limit for ultra-low token consumption
+        maxOutputTokens: 150, // Strict output token limit to prevent quota exhaustion
       },
     });
 
@@ -66,15 +60,17 @@ JSON Schema:
       return JSON.parse(jsonMatch[0]);
     }
   } catch (err) {
-    console.error('Cloud persona synthesis error:', err);
+    console.warn('Cloud persona synthesis skipped or rate-limited:', err);
   }
+
   return null;
 }
 
-// Asynchronously extract persona details without blocking chat UI
+/**
+ * Process incoming user message to update AI Persona profile asynchronously.
+ */
 export async function processMessageForPersona(userId: string, userMessageContent: string): Promise<void> {
-  // Ignore short messages like "hi", "ok", "cool", or non-text
-  if (!userMessageContent || userMessageContent.trim().length < 5) return;
+  if (!userMessageContent || userMessageContent.trim().length < 8) return;
 
   try {
     const user = await User.findById(userId);
@@ -85,79 +81,52 @@ export async function processMessageForPersona(userId: string, userMessageConten
       persona = new Persona({
         userId: user._id,
         name: user.username,
-        bio: { occupation: '', hobbies: [], facts: [], relationships: [] },
+        bio: { occupation: 'Friend', hobbies: [], facts: [], relationships: [] },
         style: { tone: 'casual', punctuation: 'standard', frequently_used_phrases: [], emoji_usage: 'occasional' },
         stances: [],
       });
       await persona.save();
     }
 
-    const currentSummary = `${persona.bio?.occupation || ''}; facts: ${(persona.bio?.facts || []).join(', ')}; tone: ${persona.style?.tone || ''}`;
+    // Step 1: Compress traits locally without LLM calls
+    const compressedSignals = extractLocalTraits(userMessageContent);
+    if (!compressedSignals) return;
 
-    // STEP 1: Local Ollama CPU model extracts raw signals (Zero cloud token cost)
-    console.log(`🤖 [Step 1: Local CPU] Extracting raw signals for ${user.username}...`);
-    const rawSignals = await extractLocalSignals(userMessageContent, currentSummary);
+    // Step 2: Update local facts
+    const updatedFacts = Array.from(
+      new Set([...(persona.bio?.facts || []), compressedSignals.slice(0, 80)])
+    ).slice(0, 10); // Cap at 10 facts max
 
-    let finalJson: any = null;
+    persona.bio = {
+      ...persona.bio,
+      facts: updatedFacts,
+    };
 
-    // STEP 2: Cloud Gemini model synthesizes high-quality persona in 1 pass with ultra-low token usage
+    // Step 3: Optional lightweight Cloud Gemini pass for tone refinement
     if (process.env.GEMINI_API_KEY) {
-      console.log(`✨ [Step 2: Cloud Model 1-Pass] Building persona profile for ${user.username} (Ultra-low token)...`);
-      finalJson = await synthesizePersonaWithCloud(persona.name, rawSignals, {
-        bio: persona.bio,
-        style: persona.style,
-        stances: persona.stances,
-      });
-    }
-
-    // Fallback if Cloud unavailable: Parse local signals basic format
-    if (!finalJson && rawSignals) {
-      finalJson = {
-        name: persona.name,
-        bio: {
-          occupation: persona.bio?.occupation || '',
-          hobbies: persona.bio?.hobbies || [],
-          facts: Array.from(new Set([...(persona.bio?.facts || []), rawSignals.slice(0, 100)])),
-          relationships: persona.bio?.relationships || [],
-        },
-        style: persona.style,
-        stances: persona.stances,
-      };
-    }
-
-    // Update DB if JSON extracted
-    if (finalJson) {
-      if (finalJson.bio) {
-        persona.bio = {
-          occupation: finalJson.bio.occupation || persona.bio.occupation,
-          hobbies: Array.from(new Set([...(persona.bio.hobbies || []), ...(finalJson.bio.hobbies || [])])),
-          facts: Array.from(new Set([...(persona.bio.facts || []), ...(finalJson.bio.facts || [])])),
-          relationships: Array.from(new Set([...(persona.bio.relationships || []), ...(finalJson.bio.relationships || [])])),
-        };
-      }
-      if (finalJson.style) {
+      const cloudJson = await synthesizePersonaWithCloud(persona.name, compressedSignals);
+      if (cloudJson?.style) {
         persona.style = {
-          tone: finalJson.style.tone || persona.style.tone,
-          punctuation: finalJson.style.punctuation || persona.style.punctuation,
+          tone: cloudJson.style.tone || persona.style?.tone || 'friendly',
+          punctuation: cloudJson.style.punctuation || persona.style?.punctuation || 'standard',
           frequently_used_phrases: Array.from(
-            new Set([...(persona.style.frequently_used_phrases || []), ...(finalJson.style.frequently_used_phrases || [])])
-          ),
-          emoji_usage: finalJson.style.emoji_usage || persona.style.emoji_usage,
+            new Set([...(persona.style?.frequently_used_phrases || []), ...(cloudJson.style.frequently_used_phrases || [])])
+          ).slice(0, 5),
+          emoji_usage: cloudJson.style.emoji_usage || persona.style?.emoji_usage || 'occasional',
         };
       }
-      if (Array.isArray(finalJson.stances)) {
-        persona.stances = Array.from(new Set([...(persona.stances || []), ...finalJson.stances]));
-      }
-
-      persona.updatedAt = new Date();
-      await persona.save();
     }
+
+    persona.updatedAt = new Date();
+    await persona.save();
   } catch (err) {
-    console.error('Background persona extraction error:', err);
+    console.error('Persona processing error:', err);
   }
 }
 
-// Convert direct plain text into a structured persona JSON using Local Extract -> Cloud 1-Pass
+/**
+ * Convert direct plain text or description into a structured AI Persona JSON.
+ */
 export async function extractPersonaFromDirectText(rawText: string, suggestedName?: string): Promise<any> {
   const targetName = suggestedName?.trim() || 'AI Persona';
 
@@ -170,23 +139,18 @@ export async function extractPersonaFromDirectText(rawText: string, suggestedNam
     };
   }
 
-  // STEP 1: Local Ollama CPU extracts raw key signals
-  console.log(`🤖 [Step 1: Local CPU] Extracting raw signals from text for ${targetName}...`);
-  const rawSignals = await extractLocalSignals(rawText);
+  const compressedSignals = extractLocalTraits(rawText) || rawText.slice(0, 150);
 
-  // STEP 2: Cloud model synthesizes high quality persona in 1 pass with ultra-low token consumption
   if (process.env.GEMINI_API_KEY) {
-    console.log(`✨ [Step 2: Cloud Model 1-Pass] Synthesizing persona profile for ${targetName}...`);
-    const cloudResult = await synthesizePersonaWithCloud(targetName, rawSignals);
-    if (cloudResult) return cloudResult;
+    const cloudProfile = await synthesizePersonaWithCloud(targetName, compressedSignals);
+    if (cloudProfile) return cloudProfile;
   }
 
-  // Fallback if cloud API key not provided
+  // Fallback structured persona
   return {
     name: targetName,
-    bio: { occupation: 'Friend', hobbies: [], facts: [rawSignals || rawText.slice(0, 100)], relationships: [] },
+    bio: { occupation: 'Friend', hobbies: [], facts: [compressedSignals], relationships: [] },
     style: { tone: 'casual and friendly', punctuation: 'standard', frequently_used_phrases: [], emoji_usage: 'occasional' },
     stances: [],
   };
 }
-
