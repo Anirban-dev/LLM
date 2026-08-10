@@ -22,15 +22,12 @@ from model import MiniGPT
 
 
 CONFIG = {
-    # Model — MUST match pretrain.py's CONFIG exactly (weight hand-off via
-    # --init_from loads a state_dict with these exact shapes). 448/8/8
-    # (~23M params) — matched to TinyStories + Dolly's token budget.
     "embed_dim"          : 448,
     "n_heads"             : 8,
     "n_layers"            : 8,
     "dropout"             : 0.1,
 
-    "batch_size"          : 64,       # real batch per step
+    "batch_size"          : 64,
     "accumulation_steps"  : 1,        # effective batch = 64
     "learning_rate"       : 3e-4,
     "warmup_steps"        : 200,
@@ -38,20 +35,14 @@ CONFIG = {
     "eval_every"          : 200,
     "eval_iters"          : 40,
     "patience"            : 8,        # stop after this many evals with no val improvement
-    "save_every"          : 500,      # unconditional autosave, for Colab disconnect safety
+    "save_every"          : 500,
     "grad_clip"           : 1.0,
 
     # Memory / speed
-    "use_fp16"            : True,     # T4-appropriate (no bf16 tensor cores on Turing)
-    "grad_checkpoint"     : False,    # model is small enough it isn't needed on a T4
-    "use_compile"         : True,     # torch.compile — free speedup on PyTorch 2.x
-    "num_workers"         : 0,        # dataset is already tokenized tensors sitting in
-                                       # RAM — __getitem__ is a plain index, not disk I/O
-                                       # or augmentation. Spawning worker processes for
-                                       # that adds fork + IPC/pickling overhead that costs
-                                       # more than the trivial work it parallelizes. Raise
-                                       # this only if profiling shows the GPU stalling on
-                                       # data (unlikely at this dataset size).
+    "use_fp16"            : True,
+    "grad_checkpoint"     : False,
+    "use_compile"         : True,
+    "num_workers"         : 0,
 }
 
 
@@ -168,10 +159,6 @@ def train(checkpoint_dir="checkpoints", resume=False, init_from=None):
         best_val_loss  = ckpt["val_loss"]
         print(f"Resumed from step {start_iter} (best val_loss={best_val_loss:.4f})")
     elif init_from:
-        # Stage-2 instruction tuning: start from Stage-1 raw-text pretrained
-        # weights instead of random init. --resume takes priority over this
-        # if a Dolly-stage checkpoint already exists (don't throw away
-        # in-progress fine-tuning).
         if not os.path.exists(init_from):
             raise FileNotFoundError(f"--init_from checkpoint not found: {init_from}")
         ckpt = torch.load(init_from, map_location=device, weights_only=False)

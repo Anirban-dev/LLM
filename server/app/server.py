@@ -1,21 +1,11 @@
 """
 server.py — OpenAI-compatible local API server for the trained Mini LLM.
 
-Exposes the same request/response shape as OpenAI's API (and what Ollama's
-/v1 compatibility layer exposes), so the OpenAI Python SDK, curl, or any
-"point at a local OpenAI-compatible endpoint" tool can talk to it.
-
 Run:
     uv run uvicorn app.server:app --host 0.0.0.0 --port 8000
     # or, with options:
     uv run python -m app.server --quantized --bits 4 --port 8000
 
-IMPORTANT — this model is a single-turn instruction model, not a real
-multi-turn chat model (it was never trained on multi-turn conversation
-data). /v1/chat/completions accepts a `messages` list for API compatibility,
-but only uses the most recent "system" message (as context) and the most
-recent "user" message (as the instruction) — earlier turns are accepted but
-ignored. See the README for details.
 """
 
 import argparse
@@ -33,11 +23,7 @@ from app.inference import load_tokenizer, load_model, generate, stream_generate
 
 MODEL_ID = "mini-llm"
 
-# Resolved relative to THIS FILE, not the process's current working
-# directory — so `uv run python -m app.server` finds the trained model
-# whether it's invoked from server/, from MiniLLM/, or anywhere else,
-# as long as the training/ and server/ folders sit side by side as shipped.
-_THIS_DIR = os.path.dirname(os.path.abspath(__file__))            # .../MiniLLM/server/app
+_THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 _DEFAULT_CHECKPOINT_DIR = os.path.normpath(
     os.path.join(_THIS_DIR, "..", "..", "training", "checkpoints")
 )
@@ -47,7 +33,6 @@ app.add_middleware(
     CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
 )
 
-# Populated by load_runtime() at startup (see __main__ / lifespan below).
 STATE = {"model": None, "tokenizer": None, "meta": None, "device": "cpu"}
 
 
@@ -61,8 +46,6 @@ def load_runtime(checkpoint_dir=_DEFAULT_CHECKPOINT_DIR, quantized=False, bits=4
 
 
 def extract_instruction_and_context(messages):
-    """Pulls the latest user message (instruction) and latest system
-    message (context), ignoring everything else — see module docstring."""
     instruction, context = None, ""
     for m in messages:
         if m.role == "system":
@@ -88,7 +71,7 @@ class ChatCompletionRequest(BaseModel):
     top_p: float = 0.9
     max_tokens: int = 200
     stream: bool = False
-    frequency_penalty: float = 0.0   # accepted for compatibility; mapped to repetition_penalty below
+    frequency_penalty: float = 0.0
 
 
 class CompletionRequest(BaseModel):
@@ -126,7 +109,6 @@ def health():
 def _rep_penalty(freq_penalty: float) -> float:
     # This model's generate() takes a multiplicative repetition_penalty
     # (>1.0 = less repetition), not OpenAI's additive frequency_penalty.
-    # This is a rough, not-exact mapping between the two.
     return 1.0 + max(freq_penalty, 0.0)
 
 
@@ -259,10 +241,6 @@ if __name__ == "__main__":
     load_runtime(args.checkpoint_dir, quantized=args.quantized, bits=args.bits)
     uvicorn.run(app, host=args.host, port=args.port)
 else:
-    # Loaded via `uvicorn app.server:app` — load with defaults (full
-    # precision, the training project's checkpoints/ folder found
-    # automatically). Use these env vars to override without CLI args
-    # in this mode:
     load_runtime(
         checkpoint_dir=os.environ.get("MINILLM_CHECKPOINT_DIR", _DEFAULT_CHECKPOINT_DIR),
         quantized=os.environ.get("MINILLM_QUANTIZED", "") == "1",

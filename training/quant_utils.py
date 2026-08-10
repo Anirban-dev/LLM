@@ -17,9 +17,6 @@ import torch.nn.functional as F
 
 
 class QuantLinear(nn.Module):
-    """Drop-in replacement for a trained nn.Linear, storing weights packed
-    at `bits` bits/value instead of fp32. Bias (if any) is kept in fp32 —
-    it's a single vector, negligible size, and quantizing it buys nothing."""
 
     def __init__(self, in_features, out_features, has_bias, bits=4, group_size=64):
         super().__init__()
@@ -42,7 +39,7 @@ class QuantLinear(nn.Module):
 
     @classmethod
     def from_linear(cls, linear, bits=4, group_size=64):
-        w = linear.weight.data.float()          # (out_features, in_features)
+        w = linear.weight.data.float()
         out_f, in_f = w.shape
         mod = cls(in_f, out_f, linear.bias is not None, bits=bits, group_size=group_size)
         qmax = (1 << bits) - 1
@@ -100,12 +97,6 @@ class QuantLinear(nn.Module):
 
 
 def quantize_model_(model, bits=4, group_size=64, skip_modules=("token_emb", "position_emb")):
-    """In-place: replace every nn.Linear in `model` with a QuantLinear,
-    except modules named in `skip_modules` (the embedding tables — they're
-    looked up by index, not matmul'd, so quantizing them doesn't help
-    speed and touches token identity directly; left in fp32 as is standard
-    practice, e.g. GGUF/GPTQ also usually keep embeddings at higher
-    precision). Returns (n_linear_quantized, orig_bytes, new_bytes)."""
     orig_bytes, new_bytes, count = 0, 0, 0
 
     def recurse(module, prefix=""):

@@ -21,9 +21,6 @@ from model import MiniGPT
 
 
 CONFIG = {
-    # Model — MUST match train.py's CONFIG so Stage 2 can load these weights.
-    # 448/8/8 (~23M params) — matched to TinyStories + Dolly's real token
-    # budget (~80M+ tokens with the 400k-doc --limit default below).
     "embed_dim"          : 448,
     "n_heads"             : 8,
     "n_layers"            : 8,
@@ -43,9 +40,7 @@ CONFIG = {
     "use_fp16"            : True,
     "grad_checkpoint"     : False,
     "use_compile"         : True,
-    "num_workers"         : 0,        # see train.py CONFIG for why: data is
-                                       # already in-memory tensors, no I/O to
-                                       # hide behind worker processes.
+    "num_workers"         : 0,
 }
 
 
@@ -113,9 +108,8 @@ def pretrain(checkpoint_dir="checkpoints", resume=False):
 
     train_blocks = torch.load(train_path)
     val_blocks   = torch.load(val_path)
-    block_size   = train_blocks[0].shape[0] - 1  # -1: inputs/targets are shifted by one
+    block_size   = train_blocks[0].shape[0] - 1
 
-    # vocab_size comes from the tokenizer trained alongside this data
     from tokenizers import Tokenizer
     tok = Tokenizer.from_file(os.path.join(checkpoint_dir, "tokenizer.json"))
     vocab_size = tok.get_vocab_size()
@@ -235,8 +229,6 @@ def pretrain(checkpoint_dir="checkpoints", resume=False):
 
     save_checkpoint(step, best_val_loss, "resume")
 
-    # Also write the canonical "model_pretrained.pt" that train.py's
-    # --init_from flag expects, pointing at the best checkpoint from this run
     best_path = os.path.join(checkpoint_dir, "model_pretrain_best.pt")
     final_path = os.path.join(checkpoint_dir, "model_pretrained.pt")
     if os.path.exists(best_path):

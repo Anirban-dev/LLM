@@ -15,13 +15,6 @@ from torch.nn import functional as F
 #  1. FUSED MULTI-HEAD SELF-ATTENTION
 # ──────────────────────────────────────────────
 class CausalSelfAttention(nn.Module):
-    """
-    One Linear projects to Q, K and V for ALL heads at once, then we just
-    reshape. This is the standard nanoGPT-style trick: it replaces
-    `n_heads` separate small matmuls with a single large one, which is
-    what GPUs are good at — far fewer kernel launches, much better
-    utilization than the v1 per-head loop.
-    """
 
     def __init__(self, embed_dim, n_heads, dropout):
         super().__init__()
@@ -36,9 +29,9 @@ class CausalSelfAttention(nn.Module):
 
     def forward(self, x, past_kv=None, use_cache=False):
         B, T, C = x.shape
-        qkv = self.qkv(x)                                   # (B, T, 3C)
+        qkv = self.qkv(x)
         q, k, v = qkv.split(C, dim=2)
-        q = q.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)  # (B, nh, T, hd)
+        q = q.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         k = k.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
 
@@ -47,18 +40,8 @@ class CausalSelfAttention(nn.Module):
             k = torch.cat([past_k, k], dim=2)
             v = torch.cat([past_v, v], dim=2)
         present = (k, v) if use_cache else None
-
-        # Only mask when there's more than one *new* query position to hide
-        # future tokens from each other (prompt processing / training). A
-        # single incremental decode step (T==1) has nothing to hide — every
-        # key in `k` (past + this token) is already at or before its own
-        # position by construction — so skip the mask and let SDPA take the
-        # faster unmasked path.
         is_causal = T > 1
-
-        # SDPA picks the best available kernel (flash / mem-efficient / math)
-        # for the current device automatically. is_causal=True means we don't
-        # need to materialize or store a (T, T) mask buffer at all.
+        
         out = F.scaled_dot_product_attention(
             q, k, v,
             dropout_p=self.dropout if self.training else 0.0,
@@ -123,13 +106,9 @@ class MiniGPT(nn.Module):
         self.ln_final = nn.LayerNorm(embed_dim)
         self.lm_head  = nn.Linear(embed_dim, vocab_size, bias=False)
 
-        # Weight tying — shares embedding and output weights (saves ~vocab*embed
-        # params and generally improves small-model quality)
         self.lm_head.weight = self.token_emb.weight
 
         self.apply(self._init_weights)
-        # GPT-2 style scaled init for residual projections — keeps deeper
-        # models stable without needing extra warmup tricks
         for name, p in self.named_parameters():
             if name.endswith("proj.weight") or name.endswith("net.2.weight"):
                 nn.init.normal_(p, mean=0.0, std=0.02 / math.sqrt(2 * n_layers))
@@ -188,30 +167,13 @@ class MiniGPT(nn.Module):
     def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None,
                  top_p=None, repetition_penalty=1.0, eos_token_id=None,
                  use_cache=True):
-        """
-        Autoregressive sampling.
-
-        use_cache=True (default) uses KV-caching: the prompt is run through
-        the model once, then each new token only requires a forward pass
-        over that ONE new token (attending to cached keys/values from every
-        previous step) instead of recomputing attention over the entire
-        growing sequence from scratch. For a prompt+generation length of N,
-        that's the difference between O(N) and O(N^2) total attention work
-        for one generated sequence — the gap grows directly with
-        `max_new_tokens` and matters most on CPU/quantized inference where
-        there's no GPU parallelism to hide the extra recomputation behind.
-
-        use_cache=False keeps the original recompute-everything-every-step
-        behavior, mainly useful for correctness testing against the cached
-        path.
-        """
+       
         if not use_cache:
             return self._generate_no_cache(
                 idx, max_new_tokens, temperature, top_k, top_p,
                 repetition_penalty, eos_token_id,
             )
 
-        # Prime the cache with the (possibly truncated) prompt.
         ctx = idx[:, -self.block_size:]
         logits, _, past_kv = self(ctx, use_cache=True)
 
@@ -248,10 +210,6 @@ class MiniGPT(nn.Module):
 
             cache_len = past_kv[0][0].shape[2]
             if cache_len >= self.block_size:
-                # Cache is full — fall back to a full recompute over a
-                # truncated (sliding) window, same behavior the no-cache
-                # path always used. Rare in practice since block_size
-                # defaults to 512 and max_new_tokens defaults to 200.
                 ctx = idx[:, -self.block_size:]
                 logits, _, past_kv = self(ctx, use_cache=True)
             else:

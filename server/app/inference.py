@@ -111,12 +111,6 @@ def generate(model, tokenizer, meta, instruction, context="", max_new_tokens=200
 @torch.no_grad()
 def stream_generate(model, tokenizer, meta, instruction, context="", max_new_tokens=200,
                      temperature=0.8, top_k=40, top_p=0.9, repetition_penalty=1.2, device="cpu"):
-    """
-    Token-by-token generator for SSE streaming. This duplicates
-    MiniGPT.generate()'s sampling loop (model.py) instead of calling it,
-    because that method only returns the full sequence at the end — this
-    version yields each new token's decoded text as it's produced.
-    """
     prompt = build_prompt(instruction, context)
     encoded = tokenizer.encode(prompt).ids
     idx = torch.tensor([encoded], dtype=torch.long, device=device)

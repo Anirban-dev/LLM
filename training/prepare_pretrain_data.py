@@ -23,9 +23,6 @@ EOS_TOKEN = "<|endoftext|>"
 
 
 def load_local_text(path):
-    """Reads a local raw text file. Blank lines separate documents; an
-    <|endoftext|> is inserted between documents so the model learns where
-    one piece of text ends and an unrelated one begins."""
     with open(path, "r", encoding="utf-8") as f:
         raw = f.read()
     docs = [d.strip() for d in raw.split("\n\n") if d.strip()]
@@ -57,19 +54,6 @@ def load_tinystories(limit=None):
 
 
 def load_fineweb(token_budget):
-    """Streams FineWeb-Edu (HuggingFaceFW/fineweb-edu, 'sample-10BT' config)
-    and stops once roughly `token_budget` tokens' worth of text has been
-    collected. This is real, general-domain (education-filtered) web text —
-    unlike TinyStories, whose entire corpus is only ~470M tokens total, this
-    can supply the several-billion-token budget a ~285M param model actually
-    needs (Chinchilla rule of thumb: ~20 tokens/param -> ~6B tokens for this
-    model). Streamed rather than downloaded whole, since the full 10BT split
-    is far more than most --token_budget values need.
-
-    Token count isn't known until after the tokenizer is trained (that
-    happens later in main()), so this uses a rough chars-per-token estimate
-    (~4, typical for byte-level BPE on English text) just to decide when to
-    stop streaming. The real token count gets printed after tokenization."""
     try:
         from datasets import load_dataset
     except ImportError:
@@ -123,16 +107,6 @@ def train_tokenizer(docs, vocab_size, out_path):
 
 
 def chunk_into_blocks(token_stream, block_size):
-    """Splits one long token stream into non-overlapping block_size chunks.
-    The last, shorter-than-block_size remainder is dropped — standard
-    practice for LM pretraining, and it keeps every training example the
-    same length (no padding needed at all in pretrain.py).
-
-    token_stream is an array.array('I', ...), not a Python list — with
-    ~200k TinyStories documents (~40M+ tokens) a plain list of boxed
-    Python ints runs into the tens-of-GB range on RAM-constrained
-    environments like a free Colab instance; array.array packs each id
-    into 4 raw bytes instead, cutting that by roughly 7x."""
     n_full = len(token_stream) // block_size
     blocks = []
     for i in range(n_full):
@@ -202,10 +176,6 @@ def main():
     val_docs, train_docs = docs[:n_val], docs[n_val:]
 
     def build_stream(doc_list):
-        # array('I', ...) is a packed C array of unsigned ints (4 bytes each)
-        # rather than a Python list of boxed int objects (28+ bytes each) —
-        # for a multi-million-token stream that's the difference between a
-        # few hundred MB and multiple GB of RAM.
         stream = array.array("I")
         for d in doc_list:
             stream.extend(tokenizer.encode(d).ids)

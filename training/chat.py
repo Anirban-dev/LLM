@@ -53,13 +53,9 @@ def load_model(checkpoint_dir, device, quantized=False, bits=4):
     if quantized:
         device = "cpu"
         if bits == 8:
-            # Native torch INT8: layer types must match before state_dict load.
             model = torch.quantization.quantize_dynamic(model, {torch.nn.Linear}, dtype=torch.qint8)
             model.load_state_dict(ckpt["model"])
         else:
-            # INT4/INT2: swap in QuantLinear (correct shapes) BEFORE loading,
-            # since the checkpoint's state_dict contains packed uint8 buffers,
-            # not fp32 nn.Linear weights.
             quantize_model_(model, bits=bits, group_size=ckpt.get("group_size", 64))
             model.load_state_dict(ckpt["model"])
     else:

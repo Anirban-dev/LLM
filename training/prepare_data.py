@@ -59,11 +59,7 @@ def download_dolly_records():
 
 
 def download_alpaca_records():
-    """Downloads Stanford Alpaca (~52k examples) from Hugging Face. Combine
-    with --dataset dolly+alpaca+slimorca to give a bigger model (e.g. the
-    300M config) more Stage 2 examples than Dolly alone (~15k) provides —
-    more capacity without more data just means faster memorization, not
-    better instruction-following."""
+    """Downloads Stanford Alpaca (~52k examples) from Hugging Face.."""
     try:
         from datasets import load_dataset
     except ImportError:
@@ -82,14 +78,7 @@ def download_alpaca_records():
 
 
 def download_slimorca_records():
-    """Downloads SlimOrca (~518k examples) from Hugging Face — cleaned,
-    GPT-4-generated instruction/response pairs. This is the big jump in
-    Stage 2 data volume: combined with Dolly+Alpaca it takes Stage 2 from
-    ~67k examples to ~585k, which is what actually justifies fine-tuning a
-    ~286M param model instead of just letting it memorize a small set faster.
-    Each record is a {"from": "system"/"human"/"gpt", "value": ...} list;
-    the system turn (if present) becomes context, human becomes the
-    instruction, gpt becomes the response."""
+    """Downloads SlimOrca (~518k examples) from Hugging Face"""
     try:
         from datasets import load_dataset
     except ImportError:
@@ -132,7 +121,6 @@ def build_prompt(instruction, context):
 
 def train_tokenizer(records, vocab_size, out_path):
     print(f"Training byte-level BPE tokenizer (vocab_size={vocab_size})...")
-    # Write a temp corpus file of prompt+response text for the tokenizer trainer
     tmp_path = out_path + ".corpus.tmp.txt"
     with open(tmp_path, "w", encoding="utf-8") as f:
         for r in records:
@@ -157,27 +145,18 @@ def pack_example(tokenizer, record, block_size, eos_id):
     prompt_ids = tokenizer.encode(build_prompt(record["instruction"], record["context"])).ids
     response_ids = tokenizer.encode(record["response"]).ids + [eos_id]
 
-    # Standard causal-LM shift: model(x)'s logits at position i predict the
-    # token at position i+1 — mirrors pretrain.py's `block[:-1], block[1:]`
-    # scheme. `full` first, `aligned_labels` marks which positions in `full`
-    # are real loss targets (response tokens) vs masked prompt tokens, at
-    # the SAME index as `full`. Then we shift by one to build the actual
-    # (input, target) pair: input drops the last token (nothing to predict
-    # after it), target drops the first (nothing predicts the first token).
     full = prompt_ids + response_ids
-    aligned_labels = [-100] * len(prompt_ids) + response_ids  # same length/index as `full`
+    aligned_labels = [-100] * len(prompt_ids) + response_ids
 
     ids    = full[:-1]
     labels = aligned_labels[1:]
 
     if len(ids) > block_size:
-        # Truncate from the FRONT so we always keep the full response
-        # (that's the part we actually train the loss on).
         overflow = len(ids) - block_size
         ids, labels = ids[overflow:], labels[overflow:]
 
     if len(labels) == len([l for l in labels if l == -100]):
-        return None  # response got fully truncated away, skip this example
+        return None
 
     return torch.tensor(ids, dtype=torch.long), torch.tensor(labels, dtype=torch.long)
 
